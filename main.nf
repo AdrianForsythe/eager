@@ -1185,8 +1185,49 @@ if ( ( params.skip_collapse || params.skip_adapterremoval ) ) {
         [ samplename, libraryid, lane, seqtype, organism, strandedness, udg, r1, r2 ]
     }
     .mix(ch_branched_for_lanemerge_skipme)
-    .into { ch_lanemerge_for_skipmap; ch_lanemerge_for_bwa; ch_lanemerge_for_cm; ch_lanemerge_for_bwamem; ch_lanemerge_for_bt2 }
+    .into { ch_lanemerge_for_skipmap; ch_lanemerge_for_bwa; ch_lanemerge_for_cm; ch_lanemerge_for_bwamem; ch_lanemerge_for_bt2; ch_pre_mapping_dedup }
 }
+
+process pre_mapping_dedup {
+    label 'mc_small'
+    tag "${libraryid}"
+    publishDir "${params.outdir}/pre_mapping_deduplication/", mode: params.publish_dir_mode
+
+    when:
+    params.dedupper == 'inhouse' && !params.skip_collapse
+
+    input:
+    tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, path(r1) ,file(r2) from ch_pre_mapping_dedup
+
+    output:
+    tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, path("*_R1_dedup.fq.gz") into ch_pre_mapping_dedup_for_mapping
+
+    script:
+    def base = "${r1.baseName}"
+    out_fwd = r1.baseName+'.rmdup.fq'
+    
+    """
+    python2.7 /home/adrianf/project-folder/nobackup/ADRIAN/bin/eager/bin/remove_duplicates_single_end.py ${r1} ${base}
+    pigz -p ${task.cpus} ${out_fwd}
+    """
+}
+
+  ch_pre_mapping_dedup_for_mapping
+    .map{
+      it -> 
+        def samplename = it[0]
+        def libraryid  = it[1]
+        def lane = it[2]
+        def seqtype = it[3]
+        def organism = it[4]
+        def strandedness = it[5]
+        def udg = it[6]
+        def r1 = file(it[7])
+        def r2 = file("$projectDir/assets/nf-core_eager_dummy.txt")
+
+        [ samplename, libraryid, lane, seqtype, organism, strandedness, udg, r1, r2 ]
+    }
+    .into { ch_lanemerge_for_skipmap; ch_lanemerge_for_bwa; ch_lanemerge_for_cm; ch_lanemerge_for_bwamem; ch_lanemerge_for_bt2 }
 
 // ENA upload doesn't do separate lanes, so merge raw FASTQs for mapped-reads removal 
 
@@ -1228,7 +1269,6 @@ process fastqc_after_clipping {
         saveAs: { filename ->
                       filename.indexOf(".zip") > 0 ? "zips/$filename" : "$filename"
                 }
-
 
     when: !params.skip_adapterremoval && !params.skip_fastqc
 
@@ -1832,7 +1872,7 @@ process dedup{
         saveAs: {filename -> "${libraryid}/$filename"}
 
     when:
-    !params.skip_deduplication && params.dedupper == 'dedup'
+    !params.skip_deduplication || params.dedupper == 'dedup'
 
     input:
     tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, path(bam), path(bai) from ch_filtering_for_dedup
@@ -2839,7 +2879,7 @@ process metagenomic_complexity_filter {
   publishDir "${params.outdir}/metagenomic_complexity_filter/", mode: params.publish_dir_mode
 
   when:
-  params.metagenomic_complexity_filter
+  params.metagenomic_complexity_filter && params.dedupper != 'inhouse'
   
   input:
   tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, path(fastq) from ch_bam_filtering_for_metagenomic
@@ -2857,8 +2897,8 @@ process metagenomic_complexity_filter {
 }
 
 // metagenomic complexity filter bypass
-
-if ( params.metagenomic_complexity_filter ) {
+// for now, skipping if using pre-mapping dedupper
+if ( params.metagenomic_complexity_filter && params.dedupper != 'inhouse' ) {
   ch_lowcomplexityfiltered_for_metagenomic
     .set{ ch_filtered_for_metagenomic }
 } else {
