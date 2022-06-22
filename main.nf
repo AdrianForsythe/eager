@@ -1209,10 +1209,7 @@ process pre_mapping_dedup {
 
   script:       
   """
-  echo ${r1}
-  echo ${libraryid}
-  which python2.7
-  python2.7 remove_duplicates_single_end.py ${r1} ${libraryid}
+  remove_duplicates_single_end.py ${r1} ${libraryid}
   pigz -f -p ${task.cpus} ${libraryid}_dedup.fastq > ${libraryid}_dedup.fastq.gz
   """
 }
