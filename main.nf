@@ -3034,9 +3034,61 @@ process kraken {
   """
 }
 
+process bracken_db {
+  tag "$name"
+  label 'mc_huge'
+
+  when:
+  params.run_metagenomic_screening && params.run_bam_filtering && params.bam_unmapped_type == 'fastq' && params.metagenomic_tool == 'kraken' && params.bracken
+
+  input:
+  path(krakendb) from ch_krakendb
+
+  script:
+  read_length = 65
+  kmer = 35
+  
+  """
+  bracken-build -d ${krakendb} -t ${task.cpus} -k ${kmer} -l ${read_length}
+  """
+}
+
+process bracken {
+  tag "$prefix"
+  label 'mc_small'
+  publishDir "${params.outdir}/metagenomic_classification/bracken", mode: params.publish_dir_mode
+
+  when:
+  params.run_metagenomic_screening && params.run_bam_filtering && params.bam_unmapped_type == 'fastq' && params.metagenomic_tool == 'kraken' && params.bracken
+
+  input:
+  tuple val(name), path(kraken_r) from ch_kraken_report
+  path(krakendb) from ch_krakendb
+
+  output:
+  file "*.bracken.out" into ch_bracken_out
+  tuple prefix, path("*.kraken2_report_bracken") into ch_kraken_parsed, ch_bracken_for_multiqc
+
+  script:
+  prefix = fastq.baseName
+  out = prefix+".kraken.bracken.out"
+  kreport = prefix+".kraken2_report_bracken"
+  kreport_old = prefix+".kreport_bracken"
+  level = params.bracken_level
+  threshold = params.metagenomic_min_support_reads
+
+  """
+  bracken -i $kraken_r -o $OUTDIR/${name}_kraken2_report_bracken.txt -d ${krakendb} -r $read_length -l ${level} -t ${threshold}
+  """
+
+}
+
 process kraken_parse {
   tag "$name"
   errorStrategy 'ignore'
+
+  when:
+  !params.bracken
 
   input:
   tuple val(name), path(kraken_r) from ch_kraken_report
@@ -3068,6 +3120,7 @@ process kraken_merge {
   merge_kraken_res.py -or $read_out -ok $kmer_out
   """    
 }
+
 
 //////////////////////////////////////
 /* --    PIPELINE COMPLETION     -- */
@@ -3185,6 +3238,7 @@ process multiqc {
     file ('fastp_lowcomplexityfilter/*') from ch_metagenomic_complexity_filter_for_multiqc.collect().ifEmpty([])
     file ('malt/*') from ch_malt_for_multiqc.collect().ifEmpty([])
     file ('kraken/*') from ch_kraken_for_multiqc.collect().ifEmpty([])
+    file ('bracken/*') from ch_bracken_for_multiqc.collect().ifEmpty([])
     file ('hops/*') from ch_hops_for_multiqc.collect().ifEmpty([])
     file ('nuclear_contamination/*') from ch_nuclear_contamination_for_multiqc.collect().ifEmpty([])
     file ('genotyping/*') from ch_eigenstrat_snp_cov_for_multiqc.collect().ifEmpty([])
