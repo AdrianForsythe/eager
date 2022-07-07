@@ -1,5 +1,7 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema",
+  "$schema": "http://json-
+  
+  .org/draft-07/schema",
   "$id": "https://raw.githubusercontent.com/nf-core/eager/master/nextflow_schema.json",
   "title": "nf-core/eager pipeline parameters",
   "description": "A fully reproducible and state-of-the-art ancient DNA analysis pipeline",
@@ -1663,7 +1665,10 @@
       "$ref": "#/definitions/consensus_sequence_generation"
     },
     {
-      "$ref": "#/definitions/snp_table_generation"
+      "$ref": "#/definitions/
+      
+      
+      "
     },
     {
       "$ref": "#/definitions/mitochondrial_to_nuclear_ratio"
