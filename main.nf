@@ -46,6 +46,11 @@ if ( params.skip_collapse && params.skip_trim ) {
   exit 1, "[nf-core/eager error]: you have specified to skip both merging and trimming of paired end samples. Use --skip_adapterremoval instead."
 }
 
+// Validate inhouse duplicate removal is always with skip collapse
+if (params.dedupper == 'inhouse' && params.skip_collapse) {
+    log.warn "[nf-core/eager] Warning: you are using the inhouse pre-mapping duplicate removal, but without specifying --skip_collapse for AdapterRemoval, this will likely fail! See documentation for more information."
+}
+
 // Bedtools validation
 if( params.run_bedtools_coverage && !params.anno_file ){
   exit 1, "[nf-core/eager] error: you have turned on bedtools coverage, but not specified a BED or GFF file with --anno_file. Please validate your parameters."
@@ -1186,8 +1191,46 @@ if ( ( params.skip_collapse || params.skip_adapterremoval ) ) {
         [ samplename, libraryid, lane, seqtype, organism, strandedness, udg, r1, r2 ]
     }
     .mix(ch_branched_for_lanemerge_skipme)
-    .into { ch_lanemerge_for_skipmap; ch_lanemerge_for_bwa; ch_lanemerge_for_cm; ch_lanemerge_for_bwamem; ch_lanemerge_for_bt2 }
+    .into { ch_lanemerge_for_skipmap; ch_pre_mapping_dedup }
 }
+
+process pre_mapping_dedup {
+  label 'mc_small'
+  tag "${libraryid}"
+  publishDir "${params.outdir}/pre_mapping_deduplication", mode: params.publish_dir_mode
+
+  input:
+  tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, path(r1) ,file(r2) from ch_pre_mapping_dedup
+
+  output:
+  tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, path("*_dedup.fastq.gz") into ch_pre_mapping_dedup_for_mapping
+
+  when:
+  params.dedupper == 'inhouse' && !params.skip_collapse
+
+  script:       
+  """
+  remove_duplicates_single_end.py ${r1} ${libraryid}
+  pigz -f -p ${task.cpus} ${libraryid}_dedup.fastq > ${libraryid}_dedup.fastq.gz
+  """
+}
+
+ch_pre_mapping_dedup_for_mapping
+  .map{
+    it -> 
+      def samplename = it[0]
+      def libraryid  = it[1]
+      def lane = it[2]
+      def seqtype = it[3]
+      def organism = it[4]
+      def strandedness = it[5]
+      def udg = it[6]
+      def r1 = file(it[7])
+      def r2 = file("$projectDir/assets/nf-core_eager_dummy.txt")
+
+      [ samplename, libraryid, lane, seqtype, organism, strandedness, udg, r1, r2 ]
+  }
+  .into { ch_lanemerge_for_skipmap; ch_lanemerge_for_bwa; ch_lanemerge_for_cm; ch_lanemerge_for_bwamem; ch_lanemerge_for_bt2 }
 
 // ENA upload doesn't do separate lanes, so merge raw FASTQs for mapped-reads removal 
 
@@ -1229,7 +1272,6 @@ process fastqc_after_clipping {
         saveAs: { filename ->
                       filename.indexOf(".zip") > 0 ? "zips/$filename" : "$filename"
                 }
-
 
     when: !params.skip_adapterremoval && !params.skip_fastqc
 
@@ -1833,7 +1875,7 @@ process dedup{
         saveAs: {filename -> "${libraryid}/$filename"}
 
     when:
-    !params.skip_deduplication && params.dedupper == 'dedup'
+    !params.skip_deduplication || params.dedupper == 'dedup'
 
     input:
     tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, path(bam), path(bai) from ch_filtering_for_dedup
@@ -2840,7 +2882,7 @@ process metagenomic_complexity_filter {
   publishDir "${params.outdir}/metagenomic_complexity_filter/", mode: params.publish_dir_mode
 
   when:
-  params.metagenomic_complexity_filter
+  params.metagenomic_complexity_filter && params.dedupper != 'inhouse'
   
   input:
   tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, path(fastq) from ch_bam_filtering_for_metagenomic
@@ -2858,8 +2900,8 @@ process metagenomic_complexity_filter {
 }
 
 // metagenomic complexity filter bypass
-
-if ( params.metagenomic_complexity_filter ) {
+// for now, skipping if using pre-mapping dedupper
+if ( params.metagenomic_complexity_filter && params.dedupper != 'inhouse' ) {
   ch_lowcomplexityfiltered_for_metagenomic
     .set{ ch_filtered_for_metagenomic }
 } else {
