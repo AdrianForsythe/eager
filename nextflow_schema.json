@@ -1,7 +1,5 @@
 {
-  "$schema": "http://json-
-  
-  .org/draft-07/schema",
+  "$schema": "http://json-schema.org/draft-07/schema",
   "$id": "https://raw.githubusercontent.com/nf-core/eager/master/nextflow_schema.json",
   "title": "nf-core/eager pipeline parameters",
   "description": "A fully reproducible and state-of-the-art ancient DNA analysis pipeline",
@@ -1433,6 +1431,18 @@
           "fa_icon": "fas fa-tools",
           "help_text": "Specify which taxonomic classifier to use. There are two options available:\n\n- `kraken` for [Kraken2](https://ccb.jhu.edu/software/kraken2)\n- `malt` for [MALT](https://software-ab.informatik.uni-tuebingen.de/download/malt/welcome.html)\n\n:warning: **Important** It is very important to run `nextflow clean -f` on your\nNextflow run directory once completed. RMA6 files are VERY large and are\n_copied_ from a `work/` directory into the results folder. You should clean the\nwork directory with the command to ensure non-redundancy and large HDD\nfootprints!"
         },
+        "bracken": {
+          "type": "boolean",
+          "description": "Turn on Bracken for metagenomic screening.",
+          "fa_icon": "fas fa-database",
+          "help_text": "Turn on the Bracken module for metagenomic screening.\n"
+        },
+        "bracken_level": {
+          "type": "string",
+          "description": "Specify the level of taxonomic classification to use for Bracken. Options: species = 'S', genus = 'G', family = 'F', order = 'O', class = 'C', phylum = 'P', kingdom = 'K'.",
+          "fa_icon": "fas fa-tree",
+          "help_text": "Specify the level of taxonomic classification to use for Bracken. There are six options available:\n\n- `S` for species\n- `G` for genus\n- `F` for family\n- `O` for order\n- `C` for class\n- `P` for phylum\n- `K` for kingdom"
+        },
         "database": {
           "type": "string",
           "description": "Specify path to classifier database directory. For Kraken2 this can also be a `.tar.gz` of the directory.",
@@ -1665,10 +1675,7 @@
       "$ref": "#/definitions/consensus_sequence_generation"
     },
     {
-      "$ref": "#/definitions/
-      
-      
-      "
+      "$ref": "#/definitions/snp_table_generation"
     },
     {
       "$ref": "#/definitions/mitochondrial_to_nuclear_ratio"
