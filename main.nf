@@ -3062,7 +3062,7 @@ process kraken {
 
   output:
   file "*.kraken.out" into ch_kraken_out
-  tuple prefix, path("*.kraken2_report") into ch_kraken_report, ch_kraken_for_multiqc
+  tuple prefix, path("*.kraken2_report") into ch_kraken_report,ch_bracken_input,ch_kraken_for_multiqc
 
   script:
   prefix = fastq.baseName
@@ -3109,7 +3109,7 @@ process bracken {
 
   output:
   file "*.bracken.out" into ch_bracken_out
-  tuple prefix, path("*.kraken2_report_bracken") into ch_kraken_parsed, ch_bracken_for_multiqc
+  tuple prefix, path("*.kraken2_report_bracken") into ch_bracken_report
 
   script:
   prefix = fastq.baseName
@@ -3146,12 +3146,36 @@ process kraken_parse {
   """    
 }
 
+process bracken_parse {
+  tag "$name"
+  errorStrategy 'ignore'
+
+  when:
+  params.bracken
+
+  input:
+  tuple val(name), path(kraken_r) from ch_bracken_report
+
+  output:
+  path('*_bracken_parsed.csv') into ch_bracken_parsed
+
+  script:
+  read_out = name+".read_bracken_parsed.csv"
+  kmer_out =  name+".kmer_bracken_parsed.csv"
+  """
+  kraken_parse.py -c ${params.metagenomic_min_support_reads} -or $read_out -ok $kmer_out $kraken_r
+  """    
+}
+
 process kraken_merge {
   publishDir "${params.outdir}/metagenomic_classification/kraken", mode: params.publish_dir_mode
 
-  input:
-  file csv_count from ch_kraken_parsed.collect()
+  when:
+  !params.bracken
 
+  input:
+  file csv_count from ch_kraken_parsed.collect()  
+  
   output:
   path('*.csv')
 
@@ -3163,6 +3187,25 @@ process kraken_merge {
   """    
 }
 
+process bracken_merge {
+  publishDir "${params.outdir}/metagenomic_classification/bracken", mode: params.publish_dir_mode
+
+  when:
+  params.bracken
+
+  input:
+  file csv_count from ch_bracken_parsed.collect()  
+  
+  output:
+  path('*.csv')
+
+  script:
+  read_out = "bracken_read_count.csv"
+  kmer_out = "bracken_kmer_duplication.csv"
+  """
+  merge_kraken_res.py -or $read_out -ok $kmer_out
+  """    
+}
 
 //////////////////////////////////////
 /* --    PIPELINE COMPLETION     -- */
