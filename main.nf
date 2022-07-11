@@ -682,7 +682,7 @@ process indexinputbam {
 // Raw sequencing QC - allow user evaluate if sequencing any good?
 
 process fastqc {
-    label 'mc_small'
+    label 'mc_medium'
     tag "${libraryid}_L${lane}"
     publishDir "${params.outdir}/fastqc/input_fastq", mode: params.publish_dir_mode,
         saveAs: { filename ->
@@ -2125,7 +2125,7 @@ process bedtools {
 // Calculate typical aDNA damage frequency distribution
 
 process damageprofiler {
-    label 'sc_small'
+    label 'sc_medium'
     tag "${libraryid}"
 
     publishDir "${params.outdir}/damageprofiler", mode: params.publish_dir_mode
