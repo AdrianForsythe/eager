@@ -10,7 +10,6 @@
  For a list of authors and contributors, see: https://github.com/nf-core/eager/tree/dev#authors-alphabetical
 ------------------------------------------------------------------------------------------------------------
 */
-nextflow.enable.dsl=1
 
 log.info Headers.nf_core(workflow, params.monochrome_logs)
 
@@ -44,11 +43,6 @@ if (!has_extension(params.input, "tsv") && params.skip_collapse  && params.singl
 // Validate not trying to both skip collapse and skip trim
 if ( params.skip_collapse && params.skip_trim ) {
   exit 1, "[nf-core/eager error]: you have specified to skip both merging and trimming of paired end samples. Use --skip_adapterremoval instead."
-}
-
-// Validate inhouse duplicate removal is always with skip collapse
-if (params.dedupper == 'inhouse' && params.skip_collapse) {
-    log.warn "[nf-core/eager] Warning: you are using the inhouse pre-mapping duplicate removal, but without specifying --skip_collapse for AdapterRemoval, this will likely fail! See documentation for more information."
 }
 
 // Bedtools validation
@@ -708,7 +702,7 @@ process fastqc {
     """
     } else {
     """
-    fastqc -t ${task.cpus} -q $r1
+    fastqc -q $r1
     rename 's/_fastqc\\.zip\$/_raw_fastqc.zip/' *_fastqc.zip
     rename 's/_fastqc\\.html\$/_raw_fastqc.html/' *_fastqc.html
     """
@@ -1191,46 +1185,8 @@ if ( ( params.skip_collapse || params.skip_adapterremoval ) ) {
         [ samplename, libraryid, lane, seqtype, organism, strandedness, udg, r1, r2 ]
     }
     .mix(ch_branched_for_lanemerge_skipme)
-    .into { ch_lanemerge_for_skipmap; ch_pre_mapping_dedup }
+    .into { ch_lanemerge_for_skipmap; ch_lanemerge_for_bwa; ch_lanemerge_for_cm; ch_lanemerge_for_bwamem; ch_lanemerge_for_bt2 }
 }
-
-process pre_mapping_dedup {
-  label 'mc_small'
-  tag "${libraryid}"
-  publishDir "${params.outdir}/pre_mapping_deduplication", mode: params.publish_dir_mode
-
-  input:
-  tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, path(r1) ,file(r2) from ch_pre_mapping_dedup
-
-  output:
-  tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, path("*_dedup.fastq.gz") into ch_pre_mapping_dedup_for_mapping
-
-  when:
-  params.dedupper == 'inhouse' && !params.skip_collapse
-
-  script:       
-  """
-  remove_duplicates_single_end.py ${r1} ${libraryid}
-  pigz -f -p ${task.cpus} ${libraryid}_dedup.fastq > ${libraryid}_dedup.fastq.gz
-  """
-}
-
-ch_pre_mapping_dedup_for_mapping
-  .map{
-    it -> 
-      def samplename = it[0]
-      def libraryid  = it[1]
-      def lane = it[2]
-      def seqtype = it[3]
-      def organism = it[4]
-      def strandedness = it[5]
-      def udg = it[6]
-      def r1 = file(it[7])
-      def r2 = file("$projectDir/assets/nf-core_eager_dummy.txt")
-
-      [ samplename, libraryid, lane, seqtype, organism, strandedness, udg, r1, r2 ]
-  }
-  .into { ch_lanemerge_for_skipmap; ch_lanemerge_for_bwa; ch_lanemerge_for_cm; ch_lanemerge_for_bwamem; ch_lanemerge_for_bt2 }
 
 // ENA upload doesn't do separate lanes, so merge raw FASTQs for mapped-reads removal 
 
@@ -1272,6 +1228,7 @@ process fastqc_after_clipping {
         saveAs: { filename ->
                       filename.indexOf(".zip") > 0 ? "zips/$filename" : "$filename"
                 }
+
 
     when: !params.skip_adapterremoval && !params.skip_fastqc
 
@@ -1875,7 +1832,7 @@ process dedup{
         saveAs: {filename -> "${libraryid}/$filename"}
 
     when:
-    !params.skip_deduplication || params.dedupper == 'dedup'
+    !params.skip_deduplication && params.dedupper == 'dedup'
 
     input:
     tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, path(bam), path(bai) from ch_filtering_for_dedup
@@ -2882,7 +2839,7 @@ process metagenomic_complexity_filter {
   publishDir "${params.outdir}/metagenomic_complexity_filter/", mode: params.publish_dir_mode
 
   when:
-  params.metagenomic_complexity_filter && params.dedupper != 'inhouse'
+  params.metagenomic_complexity_filter
   
   input:
   tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, path(fastq) from ch_bam_filtering_for_metagenomic
@@ -2900,8 +2857,8 @@ process metagenomic_complexity_filter {
 }
 
 // metagenomic complexity filter bypass
-// for now, skipping if using pre-mapping dedupper
-if ( params.metagenomic_complexity_filter && params.dedupper != 'inhouse' ) {
+
+if ( params.metagenomic_complexity_filter ) {
   ch_lowcomplexityfiltered_for_metagenomic
     .set{ ch_filtered_for_metagenomic }
 } else {
@@ -3062,7 +3019,7 @@ process kraken {
 
   output:
   file "*.kraken.out" into ch_kraken_out
-  tuple prefix, path("*.kraken2_report") into ch_kraken_report,ch_bracken_input,ch_kraken_for_multiqc
+  tuple prefix, path("*.kraken2_report") into ch_kraken_report, ch_kraken_for_multiqc
 
   script:
   prefix = fastq.baseName
@@ -3076,61 +3033,9 @@ process kraken {
   """
 }
 
-process bracken_db {
-  tag "$name"
-  label 'mc_huge'
-
-  when:
-  params.run_metagenomic_screening && params.run_bam_filtering && params.bam_unmapped_type == 'fastq' && params.metagenomic_tool == 'kraken' && params.bracken
-
-  input:
-  path(krakendb) from ch_krakendb
-
-  script:
-  read_length = 65
-  kmer = 35
-  
-  """
-  bracken-build -d ${krakendb} -t ${task.cpus} -k ${kmer} -l ${read_length}
-  """
-}
-
-process bracken {
-  tag "$prefix"
-  label 'mc_small'
-  publishDir "${params.outdir}/metagenomic_classification/bracken", mode: params.publish_dir_mode
-
-  when:
-  params.run_metagenomic_screening && params.run_bam_filtering && params.bam_unmapped_type == 'fastq' && params.metagenomic_tool == 'kraken' && params.bracken
-
-  input:
-  tuple val(name), path(kraken_r) from ch_kraken_report
-  path(krakendb) from ch_krakendb
-
-  output:
-  file "*.bracken.out" into ch_bracken_out
-  tuple prefix, path("*.kraken2_report_bracken") into ch_bracken_report
-
-  script:
-  prefix = fastq.baseName
-  out = prefix+".kraken.bracken.out"
-  kreport = prefix+".kraken2_report_bracken"
-  kreport_old = prefix+".kreport_bracken"
-  level = params.bracken_level
-  threshold = params.metagenomic_min_support_reads
-
-  """
-  bracken -i $kraken_r -o $OUTDIR/${name}_kraken2_report_bracken.txt -d ${krakendb} -r $read_length -l ${level} -t ${threshold}
-  """
-
-}
-
 process kraken_parse {
   tag "$name"
   errorStrategy 'ignore'
-
-  when:
-  !params.bracken
 
   input:
   tuple val(name), path(kraken_r) from ch_kraken_report
@@ -3146,62 +3051,18 @@ process kraken_parse {
   """    
 }
 
-process bracken_parse {
-  tag "$name"
-  errorStrategy 'ignore'
-
-  when:
-  params.bracken
-
-  input:
-  tuple val(name), path(kraken_r) from ch_bracken_report
-
-  output:
-  path('*_bracken_parsed.csv') into ch_bracken_parsed
-
-  script:
-  read_out = name+".read_bracken_parsed.csv"
-  kmer_out =  name+".kmer_bracken_parsed.csv"
-  """
-  kraken_parse.py -c ${params.metagenomic_min_support_reads} -or $read_out -ok $kmer_out $kraken_r
-  """    
-}
-
 process kraken_merge {
   publishDir "${params.outdir}/metagenomic_classification/kraken", mode: params.publish_dir_mode
 
-  when:
-  !params.bracken
-
   input:
-  file csv_count from ch_kraken_parsed.collect()  
-  
+  file csv_count from ch_kraken_parsed.collect()
+
   output:
   path('*.csv')
 
   script:
   read_out = "kraken_read_count.csv"
   kmer_out = "kraken_kmer_duplication.csv"
-  """
-  merge_kraken_res.py -or $read_out -ok $kmer_out
-  """    
-}
-
-process bracken_merge {
-  publishDir "${params.outdir}/metagenomic_classification/bracken", mode: params.publish_dir_mode
-
-  when:
-  params.bracken
-
-  input:
-  file csv_count from ch_bracken_parsed.collect()  
-  
-  output:
-  path('*.csv')
-
-  script:
-  read_out = "bracken_read_count.csv"
-  kmer_out = "bracken_kmer_duplication.csv"
   """
   merge_kraken_res.py -or $read_out -ok $kmer_out
   """    
@@ -3251,31 +3112,31 @@ process get_software_versions {
     echo $workflow.manifest.version &> v_pipeline.txt
     echo $workflow.nextflow.version &> v_nextflow.txt
     
-    fastqc -t ${task.cpus} --version &> v_fastqc.txt 2>&1 || true
+    fastqc --version &> v_fastqc.txt 2>&1 || true
     AdapterRemoval --version  &> v_adapterremoval.txt 2>&1 || true
     fastp --version &> v_fastp.txt 2>&1 || true
     bwa &> v_bwa.txt 2>&1 || true
-    circulargenerator -Xmx${task.memory.toGiga()}g --help | head -n 1 &> v_circulargenerator.txt 2>&1 || true
+    circulargenerator --help | head -n 1 &> v_circulargenerator.txt 2>&1 || true
     samtools --version &> v_samtools.txt 2>&1 || true
-    dedup -Xmx${task.memory.toGiga()}g -v &> v_dedup.txt 2>&1 || true
+    dedup -v &> v_dedup.txt 2>&1 || true
     ## bioconda recipe of picard is incorrectly set up and extra warning made with stderr, this ugly command ensures only version exported
-    ( exec 7>&1; picard -Xmx${task.memory.toMega()}M MarkDuplicates --version 2>&1 >&7 | grep -v '/' >&2 ) 2> v_markduplicates.txt || true
-    qualimap --version --java-mem-size=${task.memory.toGiga()}G &> v_qualimap.txt 2>&1 || true
+    ( exec 7>&1; picard MarkDuplicates --version 2>&1 >&7 | grep -v '/' >&2 ) 2> v_markduplicates.txt || true
+    qualimap --version &> v_qualimap.txt 2>&1 || true
     preseq &> v_preseq.txt 2>&1 || true
-    gatk --java-options "-Xmx${task.memory.toGiga()}G" --version 2>&1 | grep '(GATK)' > v_gatk.txt 2>&1 || true
-    gatk3 -Xmx${task.memory.toGiga()}g  --version 2>&1 | head -n 1 > v_gatk3.txt 2>&1 || true
+    gatk --version 2>&1 | grep '(GATK)' > v_gatk.txt 2>&1 || true
+    gatk3 --version 2>&1 | head -n 1 > v_gatk3.txt 2>&1 || true
     freebayes --version &> v_freebayes.txt 2>&1 || true
     bedtools --version &> v_bedtools.txt 2>&1 || true
-    damageprofiler -Xmx${task.memory.toGiga()}g --version &> v_damageprofiler.txt 2>&1 || true
+    damageprofiler --version &> v_damageprofiler.txt 2>&1 || true
     bam --version &> v_bamutil.txt 2>&1 || true
     pmdtools --version &> v_pmdtools.txt 2>&1 || true
     angsd -h |& head -n 1 | cut -d ' ' -f3-4 &> v_angsd.txt 2>&1 || true 
-    multivcfanalyzer -Xmx${task.memory.toGiga()}g --help | head -n 1 &> v_multivcfanalyzer.txt 2>&1 || true
-    malt-run -J-Xmx${task.memory.toGiga()}g --help |& tail -n 3 | head -n 1 | cut -f 2 -d'(' | cut -f 1 -d ',' &> v_malt.txt 2>&1 || true
-    MaltExtract -Xmx${task.memory.toGiga()}g --help | head -n 2 | tail -n 1 &> v_maltextract.txt 2>&1 || true
+    multivcfanalyzer --help | head -n 1 &> v_multivcfanalyzer.txt 2>&1 || true
+    malt-run --help |& tail -n 3 | head -n 1 | cut -f 2 -d'(' | cut -f 1 -d ',' &> v_malt.txt 2>&1 || true
+    MaltExtract --help | head -n 2 | tail -n 1 &> v_maltextract.txt 2>&1 || true
     multiqc --version &> v_multiqc.txt 2>&1 || true
-    vcf2genome -Xmx${task.memory.toGiga()}g -h |& head -n 1 &> v_vcf2genome.txt || true
-    mtnucratio -Xmx${task.memory.toGiga()}g --help &> v_mtnucratiocalculator.txt || true
+    vcf2genome -h |& head -n 1 &> v_vcf2genome.txt || true
+    mtnucratio --help &> v_mtnucratiocalculator.txt || true
     sexdeterrmine --version &> v_sexdeterrmine.txt || true
     kraken2 --version | head -n 1 &> v_kraken.txt || true
     endorS.py --version &> v_endorSpy.txt || true
@@ -3283,7 +3144,7 @@ process get_software_versions {
     bowtie2 --version | grep -a 'bowtie2-.* -fdebug' > v_bowtie2.txt || true
     eigenstrat_snp_coverage --version | cut -d ' ' -f2 >v_eigenstrat_snp_coverage.txt || true
     mapDamage --version > v_mapdamage.txt || true
-    bbversion.sh > v_bbduk.txt || true
+    bbduk.sh | grep 'Last modified' | cut -d ' ' -f 3-99 > v_bbduk.txt || true
     bcftools --version | grep 'bcftools' | cut -d ' ' -f 2 > v_bcftools.txt || true
     scrape_software_versions.py &> software_versions_mqc.yaml
     """
@@ -3323,7 +3184,6 @@ process multiqc {
     file ('fastp_lowcomplexityfilter/*') from ch_metagenomic_complexity_filter_for_multiqc.collect().ifEmpty([])
     file ('malt/*') from ch_malt_for_multiqc.collect().ifEmpty([])
     file ('kraken/*') from ch_kraken_for_multiqc.collect().ifEmpty([])
-    file ('bracken/*') from ch_bracken_for_multiqc.collect().ifEmpty([])
     file ('hops/*') from ch_hops_for_multiqc.collect().ifEmpty([])
     file ('nuclear_contamination/*') from ch_nuclear_contamination_for_multiqc.collect().ifEmpty([])
     file ('genotyping/*') from ch_eigenstrat_snp_cov_for_multiqc.collect().ifEmpty([])
@@ -3459,7 +3319,6 @@ workflow.onComplete {
     if (workflow.success) {
         log.info "-${c_purple}[nf-core/eager]${c_green} Pipeline completed successfully${c_reset}-"
         log.info "-${c_purple}[nf-core/eager]${c_green} MultiQC run report can be found in ${params.outdir}/multiqc ${c_reset}-"
-        log.info "-${c_purple}[nf-core/eager]${c_green} Further output documentation can be seen at https://nf-core/eager/output ${c_reset}-"
     } else {
         checkHostname()
         log.info "-${c_purple}[nf-core/eager]${c_red} Pipeline completed with errors${c_reset}-"
