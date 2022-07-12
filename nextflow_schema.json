@@ -1437,11 +1437,29 @@
           "fa_icon": "fas fa-database",
           "help_text": "Turn on the Bracken module for metagenomic screening.\n"
         },
+        "skip_bracken_db": {
+          "type": "boolean",
+          "description": "Create Bracken database? Supplied Kraken database location needs to be writable.",
+          "fa_icon": "fas fa-database",
+          "help_text": "Turn on creation of Bracken database. \n"
+        },
         "bracken_level": {
           "type": "string",
           "description": "Specify the level of taxonomic classification to use for Bracken. Options: species = 'S', genus = 'G', family = 'F', order = 'O', class = 'C', phylum = 'P', kingdom = 'K'.",
           "fa_icon": "fas fa-tree",
           "help_text": "Specify the level of taxonomic classification to use for Bracken. There are six options available:\n\n- `S` for species\n- `G` for genus\n- `F` for family\n- `O` for order\n- `C` for class\n- `P` for phylum\n- `K` for kingdom"
+        },
+        "bracken_readlength": {
+          "type": "number",
+          "description": "Specify the read length for generating Bracken database.",
+          "fa_icon": "fas fa-ruler",
+          "help_text": "Specify the read length for generating Bracken database.\n"
+        },
+        "braken_kmerlength": {
+          "type": "number",
+          "description": "Specify kmer length for building Bracken database.\n",
+          "fa_icon": "fas fa-ruler",
+          "help_text": "Specify kmer length for building Bracken database.\n"
         },
         "database": {
           "type": "string",

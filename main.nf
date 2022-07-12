@@ -3081,14 +3081,14 @@ process bracken_db {
   label 'mc_huge'
 
   when:
-  params.run_metagenomic_screening && params.run_bam_filtering && params.bam_unmapped_type == 'fastq' && params.metagenomic_tool == 'kraken' && params.bracken
+  params.run_metagenomic_screening && params.run_bam_filtering && params.bam_unmapped_type == 'fastq' && params.metagenomic_tool == 'kraken' && params.bracken && params.skip_bracken_db != 'true'
 
   input:
   path(krakendb) from ch_krakendb
 
   script:
-  read_length = 65
-  kmer = 35
+  read_length = params.bracken_readlength
+  kmer = params.bracken_kmerlength
   
   """
   bracken-build -d ${krakendb} -t ${task.cpus} -k ${kmer} -l ${read_length}
@@ -3112,17 +3112,15 @@ process bracken {
   tuple prefix, path("*.kraken2_report_bracken") into ch_bracken_report
 
   script:
-  prefix = fastq.baseName
-  out = prefix+".kraken.bracken.out"
-  kreport = prefix+".kraken2_report_bracken"
-  kreport_old = prefix+".kreport_bracken"
+  out = name+".kraken.bracken.out"
+  kreport = name+".kraken2_report_bracken"
   level = params.bracken_level
   threshold = params.metagenomic_min_support_reads
+  read_length = params.bracken_readlength
 
   """
-  bracken -i $kraken_r -o $OUTDIR/${name}_kraken2_report_bracken.txt -d ${krakendb} -r $read_length -l ${level} -t ${threshold}
+  bracken -i ${kraken_r} -o $OUTDIR/${name}_kraken2_report_bracken.txt -d ${krakendb} -r ${read_length} -l ${level} -t ${threshold}
   """
-
 }
 
 process kraken_parse {
