@@ -718,7 +718,11 @@
           "fa_icon": "fas fa-trash-alt",
           "help_text": "Defines how to proceed with unmapped reads: `'discard'` removes all unmapped reads, `keep` keeps both unmapped and mapped reads in the same BAM file, `'bam'` keeps unmapped reads as BAM file, `'fastq'` keeps unmapped reads as FastQ file, `both` keeps both BAM and FASTQ files. Default is `discard`.  `keep` is what would happen if `--run_bam_filtering` was _not_ supplied.\n\nNote that in all cases, if `--bam_mapping_quality_threshold` is also supplied, mapping quality filtering will still occur on the mapped reads.\n\n> Modifies samtools view parameter: `-f4 -F4`",
           "enum": ["discard", "keep", "bam", "fastq", "both"]
-        }
+        },
+        "filter_header_name": {
+          "type": "string" ,
+          "description": "Name in BAM header that is used to split host genome from another genome. Only used when competitively mapping.",
+          "help_text": "Name in BAM header that is used to split host genome from another genome. Only used when competitively mapping."
       },
       "fa_icon": "fas fa-sort-amount-down",
       "help_text": "Users can configure to keep/discard/extract certain groups of reads efficiently\nin the nf-core/eager pipeline.\n\nIf using TSV input, filtering is performed library, i.e. after lane merging.\n\nThis module utilises `samtools view` and `filter_bam_fragment_length.py`"
