@@ -3052,7 +3052,7 @@ if (params.run_metagenomic_screening && params.database.endsWith(".tar.gz") && p
 process kraken {
   tag "$prefix"
   label 'mc_huge'
-  publishDir "${params.outdir}/metagenomic_classification/kraken", mode: params.publish_dir_mode
+  publishDir "${params.outdir}/metagenomic_classification/kraken/${params.database.basename}", mode: params.publish_dir_mode
 
   when:
   params.run_metagenomic_screening && params.run_bam_filtering && params.bam_unmapped_type == 'fastq' && params.metagenomic_tool == 'kraken'
@@ -3167,7 +3167,7 @@ process bracken_parse {
 }
 
 process kraken_merge {
-  publishDir "${params.outdir}/metagenomic_classification/kraken", mode: params.publish_dir_mode
+  publishDir "${params.outdir}/metagenomic_classification/kraken/${params.database.basename}", mode: params.publish_dir_mode
 
   when:
   !params.bracken
