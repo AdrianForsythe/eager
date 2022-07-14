@@ -3064,7 +3064,7 @@ process kraken {
 
   output:
   file "*.kraken.out" optional true into ch_kraken_out
-  tuple prefix, path("*.kraken2_report") optional true into ch_kraken_report, ch_kraken_for_multiqc
+  tuple prefix, path("*.kraken2_report") optional true into ch_kraken_report, ch_kraken_for_multiqc, ch_bracken_input
 
   script:
   prefix = fastq.baseName
@@ -3107,16 +3107,16 @@ process bracken {
   params.run_metagenomic_screening && params.run_bam_filtering && params.bam_unmapped_type == 'fastq' && params.metagenomic_tool == 'kraken' && params.bracken
 
   input:
-  tuple val(name), path(kraken_r) from ch_bracken_input
+  tuple val(prefix), path(kraken_r) from ch_bracken_input
   path(krakendb) from ch_krakendb
 
   output:
-  file "*.bracken.out" into ch_bracken_out
-  tuple prefix, path("*.kraken2_report_bracken") into ch_bracken_report,ch_bracken_for_multiqc
+  file "*.bracken.out" optional true into ch_bracken_out
+  tuple prefix, path("*.kraken2_report_bracken") optional true into ch_bracken_report, ch_bracken_for_multiqc
 
   script:
-  out = name+".kraken.bracken.out"
-  kreport = name+".kraken2_report_bracken"
+  out = prefix+".kraken.bracken.out"
+  kreport = prefix+".kraken2_report_bracken"
   level = params.bracken_level
   threshold = params.metagenomic_min_support_reads
   read_length = params.bracken_readlength
@@ -3155,7 +3155,7 @@ process bracken_parse {
   params.bracken
 
   input:
-  tuple val(name), path(kraken_r) from ch_bracken_report
+  tuple val(name), path(bracken_r) from ch_bracken_report
 
   output:
   path('*_bracken_parsed.csv') into ch_bracken_parsed
@@ -3164,7 +3164,7 @@ process bracken_parse {
   read_out = name+".read_bracken_parsed.csv"
   kmer_out =  name+".kmer_bracken_parsed.csv"
   """
-  kraken_parse.py -c ${params.metagenomic_min_support_reads} -or $read_out -ok $kmer_out $kraken_r
+  kraken_parse.py -c ${params.metagenomic_min_support_reads} -or $read_out -ok $kmer_out $bracken_r
   """    
 }
 
