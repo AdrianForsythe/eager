@@ -580,8 +580,7 @@ process makeFastaIndex {
     script:
     """
     samtools faidx $fasta
-    # cut -f 1 < ${fasta}.fai | grep "${params.filter_header_name}" > fasta_host_headers.txt
-    cut -f 1,3,2 < ${fasta}.fai | grep "${params.filter_header_name}" > fasta_host_headers.bed
+    awk 'BEGIN {FS="\t"}; {print \$1 FS "0" FS \$2}' ${fasta}.fai > fasta_host_headers.bed
     """
 }
 
