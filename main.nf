@@ -1695,10 +1695,10 @@ process samtools_filter {
 
     input: 
     tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, file(bam), file(bai) from ch_seqtypemerged_for_samtools_filter
-    file(header) from ch_fasta_faidx_index_headers
+    file header from ch_fasta_faidx_index_headers.collect()
     
     output:
-    tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, file("*filtered.bam"), file("*.{bai,csi}") into ch_output_from_filtering
+    tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, file("*.filtered.bam"), file("*.{bai,csi}") into ch_output_from_filtering
     tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, file("*.unmapped.fastq.gz") optional true into ch_bam_filtering_for_metagenomic,ch_metagenomic_for_skipentropyfilter
     tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, file("*.unmapped.bam") optional true
 
@@ -3049,10 +3049,12 @@ if (params.run_metagenomic_screening && params.database.endsWith(".tar.gz") && p
     ch_krakendb = Channel.empty()
 }
 
+def extractDirectory = { it.parent.toString().substring(it.parent.toString().lastIndexOf('/') + 1 ) }
+
 process kraken {
   tag "$prefix"
   label 'mc_huge'
-  publishDir "${params.outdir}/metagenomic_classification/kraken/${params.database.basename}", mode: params.publish_dir_mode
+  publishDir "${params.outdir}/metagenomic_classification/kraken/${params.database_name}", mode: params.publish_dir_mode
 
   when:
   params.run_metagenomic_screening && params.run_bam_filtering && params.bam_unmapped_type == 'fastq' && params.metagenomic_tool == 'kraken'
@@ -3082,7 +3084,7 @@ process bracken_db {
   label 'mc_huge'
 
   when:
-  params.run_metagenomic_screening && params.run_bam_filtering && params.bam_unmapped_type == 'fastq' && params.metagenomic_tool == 'kraken' && params.bracken && params.skip_bracken_db != 'true'
+  params.run_metagenomic_screening && params.run_bam_filtering && params.bam_unmapped_type == 'fastq' && params.metagenomic_tool == 'kraken' && params.bracken && !params.skip_bracken_db
 
   input:
   path(krakendb) from ch_krakendb
@@ -3098,8 +3100,9 @@ process bracken_db {
 
 process bracken {
   tag "$prefix"
+  errorStrategy 'ignore'
   label 'mc_small'
-  publishDir "${params.outdir}/metagenomic_classification/bracken", mode: params.publish_dir_mode
+  publishDir "${params.outdir}/metagenomic_classification/bracken/${params.database_name}", mode: params.publish_dir_mode
 
   when:
   params.run_metagenomic_screening && params.run_bam_filtering && params.bam_unmapped_type == 'fastq' && params.metagenomic_tool == 'kraken' && params.bracken
@@ -3120,7 +3123,7 @@ process bracken {
   read_length = params.bracken_readlength
 
   """
-  bracken -i ${kraken_r} -o $OUTDIR/${name}_kraken2_report_bracken.txt -d ${krakendb} -r ${read_length} -l ${level} -t ${threshold}
+  bracken -i ${kraken_r} -o ${out} -d ${krakendb} -r ${read_length} -l ${level} -t ${threshold}
   """
 }
 
@@ -3167,7 +3170,7 @@ process bracken_parse {
 }
 
 process kraken_merge {
-  publishDir "${params.outdir}/metagenomic_classification/kraken/${params.database.basename}", mode: params.publish_dir_mode
+  publishDir "${params.outdir}/metagenomic_classification/kraken/${params.database_name}", mode: params.publish_dir_mode
 
   when:
   !params.bracken
@@ -3187,7 +3190,7 @@ process kraken_merge {
 }
 
 process bracken_merge {
-  publishDir "${params.outdir}/metagenomic_classification/bracken", mode: params.publish_dir_mode
+  publishDir "${params.outdir}/metagenomic_classification/bracken/${params.database_name}", mode: params.publish_dir_mode
 
   when:
   params.bracken
@@ -3321,8 +3324,8 @@ process multiqc {
     file ('multivcfanalyzer/*') from ch_multivcfanalyzer_for_multiqc.collect().ifEmpty([])
     file ('fastp_lowcomplexityfilter/*') from ch_metagenomic_complexity_filter_for_multiqc.collect().ifEmpty([])
     file ('malt/*') from ch_malt_for_multiqc.collect().ifEmpty([])
-    file ('kraken/*') from ch_kraken_for_multiqc.collect().ifEmpty([])
-    file ('bracken/*') from ch_bracken_for_multiqc.collect().ifEmpty([])
+    file ('kraken/${params.database_name}/*') from ch_kraken_for_multiqc.collect().ifEmpty([])
+    file ('bracken/${params.database_name}/*') from ch_bracken_for_multiqc.collect().ifEmpty([])
     file ('hops/*') from ch_hops_for_multiqc.collect().ifEmpty([])
     file ('nuclear_contamination/*') from ch_nuclear_contamination_for_multiqc.collect().ifEmpty([])
     file ('genotyping/*') from ch_eigenstrat_snp_cov_for_multiqc.collect().ifEmpty([])

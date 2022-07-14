@@ -1472,6 +1472,12 @@
           "fa_icon": "fas fa-database",
           "help_text": "Specify the path to the _directory_ containing your taxonomic classifier's database (malt or kraken).\n\nFor Kraken2, it can be either the path to the _directory_ or the path to the `.tar.gz` compressed directory of the Kraken2 database."
         },
+        "database_name": {
+          "type": "string",
+          "description": "Specify name of classifier database directory.",
+          "fa_icon": "fas fa-database",
+          "help_text": "Specify the name of the _directory_ containing your taxonomic classifier's database (kraken)."
+        },
         "metagenomic_min_support_reads": {
           "type": "integer",
           "default": 1,
