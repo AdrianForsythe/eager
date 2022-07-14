@@ -1387,7 +1387,6 @@ process circulargenerator{
             else null
     }
 
-
     input:
     file fasta from ch_fasta_for_circulargenerator
 
@@ -1399,7 +1398,7 @@ process circulargenerator{
     params.mapper == 'circularmapper'
 
     script:
-    prefix = "${fasta.baseName}_${params.circularextension}.fasta"
+    prefix = "${fasta.baseName}_${params.circularextension}.${fasta.extension}"
     """
     circulargenerator -Xmx${task.memory.toGiga()}g -e ${params.circularextension} -i $fasta -s ${params.circulartarget}
     bwa index $prefix
@@ -1426,7 +1425,7 @@ process circularmapper{
 
     script:
     def filter = params.circularfilter ? '-f true -x true' : ''
-    def elongated_root = "${fasta.baseName}_${params.circularextension}.fasta"
+    def elongated_root = "${fasta.baseName}_${params.circularextension}.${fasta.extension}"
     def size = params.large_ref ? '-c' : ''
 
     if (!params.single_end && params.skip_collapse ){
@@ -3064,8 +3063,8 @@ process kraken {
   path(krakendb) from ch_krakendb
 
   output:
-  file "*.kraken.out" into ch_kraken_out
-  tuple prefix, path("*.kraken2_report") into ch_kraken_report,ch_bracken_input,ch_kraken_for_multiqc
+  file "*.kraken.out" optional true into ch_kraken_out
+  tuple prefix, path("*.kraken2_report") optional true into ch_kraken_report, ch_kraken_for_multiqc
 
   script:
   prefix = fastq.baseName
