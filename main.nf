@@ -2126,6 +2126,7 @@ process bedtools {
 
 process damageprofiler {
     label 'sc_medium'
+    errorStrategy 'ignore'
     tag "${libraryid}"
 
     publishDir "${params.outdir}/damageprofiler", mode: params.publish_dir_mode
