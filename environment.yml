@@ -39,6 +39,7 @@ dependencies:
   - bioconda::pysam=0.16.0
   - bioconda::kraken2=2.1.2
   - bioconda::bracken=2.7
+  - bioconda::krakentools=1.2
   - conda-forge::pandas=1.2.4
   - bioconda::freebayes=1.3.5
   - bioconda::sexdeterrmine=1.1.2

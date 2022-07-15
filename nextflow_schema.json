@@ -1448,11 +1448,17 @@
           "fa_icon": "fas fa-database",
           "help_text": "Turn on creation of Bracken database. \n"
         },
-        "bracken_level": {
+        "taxa_min_level": {
           "type": "string",
-          "description": "Specify the level of taxonomic classification to use for Bracken. Options: species = 'S', genus = 'G', family = 'F', order = 'O', class = 'C', phylum = 'P', kingdom = 'K'.",
+          "description": "Specify the minimum level of taxonomic classification to use for Bracken and Kraken-biom conversion. Options: species = 'S', genus = 'G', family = 'F', order = 'O', class = 'C', phylum = 'P', kingdom = 'K'.",
           "fa_icon": "fas fa-tree",
-          "help_text": "Specify the level of taxonomic classification to use for Bracken. There are six options available:\n\n- `S` for species\n- `G` for genus\n- `F` for family\n- `O` for order\n- `C` for class\n- `P` for phylum\n- `K` for kingdom"
+          "help_text": "Specify the minimum level of taxonomic classification to use for Bracken and Kraken-biom conversion. There are six options available:\n\n- `S` for species\n- `G` for genus\n- `F` for family\n- `O` for order\n- `C` for class\n- `P` for phylum\n- `K` for kingdom"
+        },
+        "taxa_max_level": {
+          "type": "string",
+          "description": "Specify the maximum level of taxonomic classification to use for Bracken and Kraken-biom conversion. Options: species = 'S', genus = 'G', family = 'F', order = 'O', class = 'C', phylum = 'P', kingdom = 'K'.",
+          "fa_icon": "fas fa-tree",
+          "help_text": "Specify the maximum level of taxonomic classification to use for Bracken and Kraken-biom conversion. There are six options available:\n\n- `S` for species\n- `G` for genus\n- `F` for family\n- `O` for order\n- `C` for class\n- `P` for phylum\n- `K` for kingdom"
         },
         "bracken_readlength": {
           "type": "number",
