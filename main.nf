@@ -3078,6 +3078,14 @@ process kraken {
   """
 }
 
+if (params.bracken){
+  ch_brackendb = Channel.fromPath(params.database).first()
+  ch_db_for_bracken = Channel.fromPath(params.database).first()
+  } else {
+    ch_brackendb = Channel.empty()
+    ch_db_for_bracken = Channel.empty()
+}
+
 process bracken_db {
   tag "$name"
   label 'mc_huge'
@@ -3086,7 +3094,7 @@ process bracken_db {
   params.run_metagenomic_screening && params.run_bam_filtering && params.bam_unmapped_type == 'fastq' && params.metagenomic_tool == 'kraken' && params.bracken && !params.skip_bracken_db
 
   input:
-  path(krakendb) from ch_krakendb
+  path(krakendb) from ch_brackendb
 
   script:
   read_length = params.bracken_readlength
@@ -3163,7 +3171,7 @@ process bracken {
 
   input:
   path(k_report) from ch_bracken_input
-  path(krakendb) from ch_krakendb
+  path(krakendb) from ch_db_for_bracken
 
   output:
   path("merged.kraken2_report.bracken.out") optional true
