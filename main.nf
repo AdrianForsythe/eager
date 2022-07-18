@@ -2644,7 +2644,7 @@ process genotyping_angsd {
     angsd_glformat = "3"; break
   }
   
-  def angsd_fasta = !params.angsd_createfasta ? '' : params.angsd_fastamethod == 'random' ? '-doFasta 1 -doCounts 1' : '-doFasta 2 -doCounts 1' 
+  def angsd_fasta = !params.angsd_createfasta ? '' : params.angsd_fastamethod == 'random' ? '-doFasta 1 -doCounts 1 -dumpCounts 3' : '-doFasta 2 -doCounts 1 -dumpCounts 3' 
   def angsd_majorminor = params.angsd_glformat != "beagle" ? '' : '-doMajorMinor 1'
   """
   echo ${bam} > bam.filelist
