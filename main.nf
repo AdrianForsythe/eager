@@ -2618,7 +2618,7 @@ process genotyping_angsd {
   file dict from ch_dict_for_angsd.collect()
 
   output: 
-  path("${samplename}*")
+  path("${samplename}*") into ch_angsd_out
   
   script:
   switch ( "${params.angsd_glmodel}" ) {
@@ -2643,7 +2643,7 @@ process genotyping_angsd {
     angsd_glformat = "3"; break
   }
   
-  def angsd_fasta = !params.angsd_createfasta ? '' : params.angsd_fastamethod == 'random' ? '-doFasta 1 -doCounts 1' : '-doFasta 2 -doCounts 1' 
+  def angsd_fasta = !params.angsd_createfasta ? '' : params.angsd_fastamethod == 'random' ? '-doFasta 1 -doCounts 1 -dumpCounts 3' : '-doFasta 2 -doCounts 1 -dumpCounts 3' 
   def angsd_majorminor = params.angsd_glformat != "beagle" ? '' : '-doMajorMinor 1'
   """
   echo ${bam} > bam.filelist
@@ -2751,6 +2751,93 @@ process multivcfanalyzer {
   bgzip -@ ${task.cpus} *.vcf
   """
  }
+
+////////////////////////////////////////////////////////////
+/* --   IDENTIFY DIAGNOSTIC SITES IN HOST MT GENOME    -- */
+////////////////////////////////////////////////////////////
+
+if (!params.diagnostic_sites) {
+    ch_mt_ref_genomes=path(params.mt_reference_genomes)
+} else {
+    ch_mt_ref_genomes=Channel.empty()
+}
+
+// TODO: make sure this works with a multi-sample file
+// or do this on a per sample basis?
+process angsd_counts {
+  tag "${samplename}"
+  label  'sc_small'
+  publishDir "${params.outdir}/diagnostic_sites/counts", mode: params.publish_dir_mode
+
+  when:
+  params.diagnostic_sites
+
+  input:
+  pos as file('*.pos.gz') from ch_angsd_out
+  counts as file('*.counts.gz') from ch_angsd_out
+
+  output:
+  file('*.allele_counts') into ch_diag_angsd_counts
+
+  script:
+  
+  """
+  ##tempfile with positions only:
+  zcat $pos | tail -n +2 | cut -f 2 > ${pos.basename}.positions
+
+  #gunzip countsfile for pasting
+  gunzip $counts
+
+  #creating a temporary file per base with position in first column, allele depth in second and allele in third (this is messy but should work)
+  for i in {1..4}
+  do
+  allele=$(head -n 1 ${counts.basename}.counts | cut -f $i)
+  cat ${counts.basename}.counts | cut -f $i | tail -n +2 | paste tmp.positions - > ${counts.basename}.counts_"$allele"
+  awk -v allele=${allele/tot/} ' {print $0, allele} ' ${counts.basename}.counts_"$allele" > ${counts.basename}.counts_"$allele"_2
+  mv ${counts.basename}.counts_"$allele"_2 ${counts.basename}.counts_"$allele"
+  cat ${counts.basename}.counts_"$allele" >> ${counts.basename}.allele_counts
+  done 
+
+  gzip $counts
+
+  """
+}
+
+f (!params.diagnostic_sites) {
+    ch_mt_ref_pops=path(params.mt_reference_pops)
+} else {
+    ch_mt_ref_pops=Channel.empty()
+}
+
+
+// TODO: concatenate from all samples first?
+process extract_diag_sites {
+  when:
+  params.diagnostic_sites
+
+  input:
+  file counts from ch_diag_angsd_counts.collect()
+  file refs from ch_mt_ref_genomes.collect()
+  file pops from ch_mt_ref_pops.collect()
+  
+  output:
+
+
+  script:
+  """
+  diagnostic_sites.py \
+    --input $counts
+    --popfile $pops
+    --reference $refs
+    --outputsites
+    --outputcounts
+    --allele_count
+    --translated_sites
+    --concatenated_seqs_refs2
+    --concatenated_seqs_refs_diag_sites_only
+    --seqdicttofasta
+  """
+}
 
 ////////////////////////////////////////////////////////////
 /* --    HUMAN DNA SPECIFIC ADDITIONAL INFORMATION     -- */
