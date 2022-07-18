@@ -578,9 +578,10 @@ process makeFastaIndex {
     path "where_are_my_files.txt"
 
     script:
+    header = params.filter_header_name
     """
     samtools faidx $fasta
-    awk 'BEGIN {FS="\t"}; {print \$1 FS "0" FS \$2}' ${fasta}.fai > fasta_host_headers.bed
+    awk 'BEGIN {FS="\t"}; {print \$1 FS "0" FS \$2}' ${fasta}.fai | grep $header > fasta_host_headers.bed
     """
 }
 
@@ -1659,7 +1660,7 @@ ch_seqtypemerge_for_filtering
 // Post-mapping QC
 
 process samtools_flagstat {
-    label 'sc_tiny'
+    label 'sc_small'
     tag "$libraryid"
     publishDir "${params.outdir}/samtools/stats", mode: params.publish_dir_mode
 
@@ -1798,7 +1799,7 @@ if (params.run_bam_filtering) {
 // Post filtering mapping QC - particularly to help see how much was removed from mapping quality filtering
 
 process samtools_flagstat_after_filter {
-    label 'sc_tiny'
+    label 'sc_small'
     tag "$libraryid"
     publishDir "${params.outdir}/samtools/filtered_stats", mode: params.publish_dir_mode
 
