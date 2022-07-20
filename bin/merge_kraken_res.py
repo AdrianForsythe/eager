@@ -24,20 +24,28 @@ def _get_args():
         dest="kmerout",
         default="kraken_kmer_unicity_table.csv",
         help="Kmer unicity output file. Default = kraken_kmer_unicity_table.csv")
+    parser.add_argument('--bracken', dest='bracken', default=False, action='store_true')
 
     args = parser.parse_args()
 
     readout = args.readout
     kmerout = args.kmerout
+    bracken = args.bracken
 
-    return(readout, kmerout)
+    return(readout, kmerout, bracken)
 
 
-def get_csv():
-    tmp = [i for i in os.listdir() if ".csv" in i]
-    kmer = [i for i in tmp if '.kmer_' in i]
-    read = [i for i in tmp if '.read_' in i]
-    return(read, kmer)
+def get_csv(bracken):
+    if bracken:
+        tmp = [i for i in os.listdir() if ".csv" in i]
+        read = [i for i in tmp if '.read_' in i]
+        return(read)
+    else:
+        tmp = [i for i in os.listdir() if ".csv" in i]
+        kmer = [i for i in tmp if '.kmer_' in i]
+        read = [i for i in tmp if '.read_' in i]
+        return(read, kmer)
+
 
 
 def _get_basename(file_name):
@@ -62,9 +70,14 @@ def write_csv(pd_dataframe, outfile):
 
 
 if __name__ == "__main__":
-    READOUT, KMEROUT = _get_args()
-    reads, kmers = get_csv()
-    read_df = merge_csv(reads)
-    kmer_df = merge_csv(kmers)
-    write_csv(read_df, READOUT)
-    write_csv(kmer_df, KMEROUT)
+    READOUT, KMEROUT, bracken = _get_args()
+    if bracken:
+        reads = get_csv(bracken)
+        read_df = merge_csv(reads)
+        write_csv(read_df, READOUT)
+    else:
+        reads, kmers = get_csv(bracken)
+        read_df = merge_csv(reads)
+        kmer_df = merge_csv(kmers)
+        write_csv(read_df, READOUT)
+        write_csv(kmer_df, KMEROUT)
