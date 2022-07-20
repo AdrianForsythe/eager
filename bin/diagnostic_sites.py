@@ -18,7 +18,7 @@ import argparse
 
 #This is the function that open and transforms the fasta file to a dictionary in its simplest use (it also subsets by position and sample if wanted, that's why its long and messy.).
 def FastaFetch(infasta, sequences=None, start=None, stop=None):
-    f = pysam.infasta(infasta)
+    f = pysam.FastaFile(infasta)
     seqDict = []
     if sequences is not None:
         if os.path.isfile(sequences):
@@ -146,7 +146,9 @@ def CountDiagnosticPositions(seqDict, reference, outputcounts):
             of.write(sample['sample'] + "\t" + str(sample[pop1]) + "\t" + str(sample[pop2]) + "\t" + str(sample['other']) + "\t" + str(sample['missing_data']) + "\n")
         of.close()
 
-# TODO: check that this writes properly
+# in the original script, this is where angsd was run and the output was parsed
+
+# TODO: subset ANGSD output to just mito
 def ExtractDiagSites(diagsites,allelecounts,extractedsites):
     with open(diagsites, "r") as diag_sites:
             lines=[line.rstrip() for line in diag_sites]
@@ -160,78 +162,35 @@ def ExtractDiagSites(diagsites,allelecounts,extractedsites):
                         of.close()
 
 
-##### these would be angsd fasta output
-## might not need this
-# def parse_fasta(infasta):
-#     with open(infasta) as f:
-#         seqDict = []
-#         seqNr = 0
-#         for line in f.readlines():
-#             if line.startswith(">"):
-#                 seqDict.append({'header':line.rstrip().lstrip(">"), 'sequence':""})
-#                 seqNr += 1
-#             else:
-#                 seqDict[seqNr - 1]['sequence'] = seqDict[seqNr - 1]['sequence'] + line.rstrip()
-#     return seqDict
-
-# def change_headers(headers, seqDict):
-#     with open(headers) as h:
-#         if len(h.readline().split("\t")) == 2:
-#             h.seek(0)
-#             for line in h.readlines():
-#                 for i in range(0, len(seqDict)):
-#                     if seqDict[i]['header'].lstrip(">") == line.split()[0].lstrip(">"):
-#                         seqDict[i]['header'] = line.split()[1].rstrip().lstrip(">")
-#         else:
-#             h.seek(0)
-#             new_headers = []
-#             for line in h.readlines():
-#                 new_headers.append(line.rstrip().lstrip(">"))
-#             for i in range(0, len(seqDict)):
-#                     seqDict[i]['header'] = new_headers[i]
-#     return seqDict
-
 def WriteSeqDictToFasta(seqDict, outfasta, append=False):
     with open(outfasta ,"wt") as f:
         for seq in seqDict:
             f.write('>' + seq['header'] + "\n" + seq['sequence'] + "\n")
         f.close()
 
-##### the rest are for odd samples(?)
-
-# this script takes a translation file (one column with the aligned positions, one column with the 
-# translated positions) and gives me a translated allele count file. Resulting file can then be used
-# with the 2extract_sites_from_allele_counts.py to extract diagnostic sites.
-
-def translate(allele_count,translated_sites):
-    allele_count=open(sys.argv[1],"r")
+def ExtractSitesFromCounts(diagsites,allelecounts):
+    with open(diagsites, "r") as diag_sites:
+            lines=[line.rstrip() for line in diag_sites]
+    allele_count=open(allelecounts,"r")
     for line in allele_count:
-            values=line.split(" ")
-            with open(translated_sites,"r") as translated_sites:
+        values=line.split(" ")
+        if values[0] in lines:
+            print(line)
+
+def translate(allelecount,translatedsites):
+    allele_count=open(allelecount,"r")
+    for line in allele_count:
+            values=line.split("\t")
+            with open(translatedsites,"r") as translated_sites:
                     for sites in translated_sites:
                             sites=sites.strip()
                             translation=sites.split("\t")
                             if values[0] == translation[1]:
-                                    translated_sites.write(translation[0]+" "+values[1]+" "+values[2] + "\n")
-                                    translated_sites.close()
+                                    print(translation[0]+" "+values[1]+" "+values[2])
 
-def diag_sites_from_fasta(concatenated_seqs_refs2,concatenated_seqs_refs_diag_sites_only):
-    # each record in a fastaiterator as in SeqIO.parse is actually a sample, so we want to
-    # loop through all of these, one by one
-    #you can create a list of dictionaries (how Axel does it) and append each base to the 
-    # sample key
-    seqDictDiag=[] # creates an empty list for us to append to later on
-    for record in SeqIO.parse(concatenated_seqs_refs2,"fasta"):
-        #and for each sample/record loop through all positions
-        seqDictDiag.append({'sample':record.name, 'sequence':""}) #this creates a list of
-    # dictionaries, with the 'sample' key being set to the record id and the sequence is
-    #an empty string so far, which we will appen to in the following loop
-        with open(concatenated_seqs_refs_diag_sites_only, "r") as positions: # generally good
-    # to use the "with" satement when looping through files like this, makes sure they
-    # open and close when they should (it will close once the with-loop has finished
-            for x in positions:
-                print(record.id,int(x),record.seq[int(x)-1])
-                seqDictDiag[-1]['sequence']=seqDictDiag[-1]['sequence'] + record.seq[int(x)-1]
+translate("/home/adrian/nf-core-eager/eager/Ua002.allele_counts","/home/adrian/nf-core-eager/bear/translate")
+
+# TODO: anything missing?
 
 #Input arguments
 parser = argparse.ArgumentParser(description="Identify and count sites per sample that are fixed for differential alleles between two predefined populations")
@@ -244,7 +203,6 @@ parser.add_argument('--reference', type=str, help="File with reference's diagnos
 parser.add_argument('-oc', '--outputcounts', type=str, help="Path to output file containing the diagnostic counts per sample", required=True)
 parser.add_argument('--allele_count', type=str, help="",required=True)
 parser.add_argument('--translated_sites', type=str, help="",required=True)
-parser.add_argument('--concatenated_seqs_refs2', type=str, help="",required=True)
 parser.add_argument('--concatenated_seqs_refs_diag_sites_only', type=str, help="",required=True)
 parser.add_argument('--seqdicttofasta',type=str,help="",required=True)
 
@@ -273,7 +231,7 @@ CountDiagnosticPositions(seqDictAln, args.reference, args.reference)
 ExtractDiagSites(diagsites,allelecounts,extractedsites)
 
 # get the right positions
-translate(args.allele_count,args.translated_sites)
+diag_sites_from_fasta(args.input,args.angsdfasta)
 
 # make seq dictionary from diagnostic sites
 seqDictDiag = diag_sites_from_fasta(args.concatenated_seqs_refs2,args.concatenated_seqs_refs_diag_sites_only)
