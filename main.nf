@@ -581,7 +581,7 @@ process makeFastaIndex {
     header = params.filter_header_name
     """
     samtools faidx $fasta
-    awk 'BEGIN {FS="\t"}; {print \$1 FS "0" FS \$2}' ${fasta}.fai | grep $header > fasta_host_headers.bed
+    awk 'BEGIN {FS="\t"}; {print \$1 FS "0" FS \$2}' ${fasta}.fai | grep -E $header > fasta_host_headers.bed
     """
 }
 
@@ -3160,9 +3160,6 @@ process kraken_parse {
 }
 
 process kraken_merge {
-  if (params.bracken )
-  publishDir "${params.outdir}/metagenomic_classification/bracken/${params.database_name}", mode: params.publish_dir_mode
-  else
   publishDir "${params.outdir}/metagenomic_classification/kraken/${params.database_name}", mode: params.publish_dir_mode
 
   input:
@@ -3172,19 +3169,18 @@ process kraken_merge {
   path('*.csv')
 
   script:
+  read_out = "kraken_read_count.csv"
+  kmer_out = "kraken_kmer_duplication.csv"
+
   if ( params.bracken )
-  read_out = "bracken_read_count.csv"
-  kmer_out = "bracken_kmer_duplication.csv"
   """
   merge_kraken_res.py -or $read_out -ok $kmer_out --bracken
   """    
   else
-  read_out = "kraken_read_count.csv"
-  kmer_out = "kraken_kmer_duplication.csv"
   """
   merge_kraken_res.py -or $read_out -ok $kmer_out
   """    
-}
+} 
 
 //////////////////////////////////////
 /* --    PIPELINE COMPLETION     -- */
