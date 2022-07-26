@@ -581,7 +581,7 @@ process makeFastaIndex {
     header = params.filter_header_name
     """
     samtools faidx $fasta
-    awk 'BEGIN {FS="\t"}; {print \$1 FS "0" FS \$2}' ${fasta}.fai | grep -E $header > fasta_host_headers.bed
+    awk 'BEGIN {FS="\t"}; {print \$1 FS "0" FS \$2}' ${fasta}.fai | grep -E "$header" > fasta_host_headers.bed
     """
 }
 
