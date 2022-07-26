@@ -578,9 +578,10 @@ process makeFastaIndex {
     path "where_are_my_files.txt"
 
     script:
+    header = params.filter_header_name
     """
     samtools faidx $fasta
-    awk 'BEGIN {FS="\t"}; {print \$1 FS "0" FS \$2}' ${fasta}.fai > fasta_host_headers.bed
+    awk 'BEGIN {FS="\t"}; {print \$1 FS "0" FS \$2}' ${fasta}.fai | grep -E $header > fasta_host_headers.bed
     """
 }
 
@@ -1659,7 +1660,7 @@ ch_seqtypemerge_for_filtering
 // Post-mapping QC
 
 process samtools_flagstat {
-    label 'sc_tiny'
+    label 'sc_medium'
     tag "$libraryid"
     publishDir "${params.outdir}/samtools/stats", mode: params.publish_dir_mode
 
@@ -1798,7 +1799,7 @@ if (params.run_bam_filtering) {
 // Post filtering mapping QC - particularly to help see how much was removed from mapping quality filtering
 
 process samtools_flagstat_after_filter {
-    label 'sc_tiny'
+    label 'sc_medium'
     tag "$libraryid"
     publishDir "${params.outdir}/samtools/filtered_stats", mode: params.publish_dir_mode
 
@@ -2643,7 +2644,7 @@ process genotyping_angsd {
     angsd_glformat = "3"; break
   }
   
-  def angsd_fasta = !params.angsd_createfasta ? '' : params.angsd_fastamethod == 'random' ? '-doFasta 1 -doCounts 1' : '-doFasta 2 -doCounts 1' 
+  def angsd_fasta = !params.angsd_createfasta ? '' : params.angsd_fastamethod == 'random' ? '-doFasta 1 -doCounts 1 -dumpCounts 3' : '-doFasta 2 -doCounts 1 -dumpCounts 3' 
   def angsd_majorminor = params.angsd_glformat != "beagle" ? '' : '-doMajorMinor 1'
   """
   echo ${bam} > bam.filelist
@@ -2803,7 +2804,7 @@ process sexdeterrmine_prep {
 
 // As we collect all files for a single sex_deterrmine run, we DO NOT use the normal input/output tuple
 process sexdeterrmine {
-    label 'mc_small'
+    label 'mc_medium'
     publishDir "${params.outdir}/sex_determination", mode: params.publish_dir_mode
 
     input:
@@ -3064,7 +3065,7 @@ process kraken {
 
   output:
   file "*.kraken.out" optional true into ch_kraken_out
-  tuple prefix, path("*.kraken2_report") optional true into ch_kraken_report, ch_kraken_for_multiqc, ch_kraken_report_merge
+  tuple prefix, path("*.kraken2_report") optional true into ch_kraken_report, ch_kraken_for_multiqc, ch_bracken_input
 
   script:
   prefix = fastq.baseName
@@ -3078,6 +3079,14 @@ process kraken {
   """
 }
 
+if (params.bracken){
+  ch_brackendb = Channel.fromPath(params.database).first()
+  ch_db_for_bracken = Channel.fromPath(params.database).first()
+  } else {
+    ch_brackendb = Channel.empty()
+    ch_db_for_bracken = Channel.empty()
+}
+
 process bracken_db {
   tag "$name"
   label 'mc_huge'
@@ -3086,7 +3095,7 @@ process bracken_db {
   params.run_metagenomic_screening && params.run_bam_filtering && params.bam_unmapped_type == 'fastq' && params.metagenomic_tool == 'kraken' && params.bracken && !params.skip_bracken_db
 
   input:
-  path(krakendb) from ch_krakendb
+  path(krakendb) from ch_brackendb
 
   script:
   read_length = params.bracken_readlength
@@ -3097,12 +3106,47 @@ process bracken_db {
   """
 }
 
+process bracken {
+  tag "$name"
+  label 'mc_small'
+  publishDir "${params.outdir}/metagenomic_classification/bracken/${params.database_name}", mode: params.publish_dir_mode
+  errorStrategy 'ignore'
+
+  when:
+  params.run_metagenomic_screening && params.run_bam_filtering && params.bam_unmapped_type == 'fastq' && params.metagenomic_tool == 'kraken' && params.bracken
+
+  input:
+  tuple val(name), path(k_report) from ch_bracken_input
+  path(krakendb) from ch_db_for_bracken
+
+  output:
+  tuple val(name), path("*_bracken_species.kraken2_report") optional true into ch_bracken_report
+  path("*.kraken.bracken.out") optional true
+
+  script:
+  kraken_r = name+"_bracken_species.kraken2_report"
+  bracken_out =  name+".kraken.bracken.out"
+  level = params.taxa_min_level
+  threshold = params.metagenomic_min_support_reads
+  read_length = params.bracken_readlength
+
+  """
+  bracken -i ${k_report} -o ${bracken_out} -d ${krakendb} -r ${read_length} -l ${level} -t ${threshold}
+  """
+}
+
+if (params.bracken){
+  ch_krakenparse_input = ch_bracken_report
+  } else {
+  ch_krakenparse_input = ch_kraken_report
+}
+
 process kraken_parse {
   tag "$name"
   errorStrategy 'ignore'
 
   input:
-  tuple val(name), path(kraken_r) from ch_kraken_report
+  tuple val(name), path(kraken_r) from ch_krakenparse_input
 
   output:
   path('*_kraken_parsed.csv') into ch_kraken_parsed
@@ -3110,6 +3154,11 @@ process kraken_parse {
   script:
   read_out = name+".read_kraken_parsed.csv"
   kmer_out =  name+".kmer_kraken_parsed.csv"
+  if ( params.bracken )
+  """
+  kraken_parse.py -c ${params.metagenomic_min_support_reads} -or $read_out -ok $kmer_out $kraken_r --bracken
+  """    
+  else
   """
   kraken_parse.py -c ${params.metagenomic_min_support_reads} -or $read_out -ok $kmer_out $kraken_r
   """    
@@ -3127,57 +3176,16 @@ process kraken_merge {
   script:
   read_out = "kraken_read_count.csv"
   kmer_out = "kraken_kmer_duplication.csv"
+
+  if ( params.bracken )
+  """
+  merge_kraken_res.py -or $read_out -ok $kmer_out --bracken
+  """    
+  else
   """
   merge_kraken_res.py -or $read_out -ok $kmer_out
   """    
-}
-
-process kraken2_report_merge {
-  publishDir "${params.outdir}/metagenomic_classification/kraken/${params.database_name}", mode: params.publish_dir_mode
-
-  when:
-  params.bracken
-
-  input:
-  file k_report from ch_kraken_report_merge
-
-  output:
-  path("merged.kraken2_report") into ch_bracken_input
-
-  script:
-  out = "merged.kraken2_report"
-  in = path(k_report).collect()
-
-  """
-  python complete_kreports.py -r $in -o $out
-  """
-}
-
-process bracken {
-  errorStrategy 'ignore'
-  label 'mc_small'
-  publishDir "${params.outdir}/metagenomic_classification/bracken/${params.database_name}", mode: params.publish_dir_mode
-
-  when:
-  params.run_metagenomic_screening && params.run_bam_filtering && params.bam_unmapped_type == 'fastq' && params.metagenomic_tool == 'kraken' && params.bracken
-
-  input:
-  path(k_report) from ch_bracken_input
-  path(krakendb) from ch_krakendb
-
-  output:
-  path("merged.kraken2_report.bracken.out") optional true
-
-  script:
-  out = "merged.kraken2_report.bracken.out"
-  level = params.taxa_min_level
-  threshold = params.metagenomic_min_support_reads
-  read_length = params.bracken_readlength
-
-  """
-  bracken -i ${k_report} -o ${out} -d ${krakendb} -r ${read_length} -l ${level} -t ${threshold}
-  """
-}
+} 
 
 //////////////////////////////////////
 /* --    PIPELINE COMPLETION     -- */
@@ -3294,7 +3302,7 @@ process multiqc {
     file ('multivcfanalyzer/*') from ch_multivcfanalyzer_for_multiqc.collect().ifEmpty([])
     file ('fastp_lowcomplexityfilter/*') from ch_metagenomic_complexity_filter_for_multiqc.collect().ifEmpty([])
     file ('malt/*') from ch_malt_for_multiqc.collect().ifEmpty([])
-    file ('kraken/${params.database_name}/*') from ch_kraken_for_multiqc.collect().ifEmpty([])
+    file ('kraken/*') from ch_kraken_for_multiqc.collect().ifEmpty([])
     file ('hops/*') from ch_hops_for_multiqc.collect().ifEmpty([])
     file ('nuclear_contamination/*') from ch_nuclear_contamination_for_multiqc.collect().ifEmpty([])
     file ('genotyping/*') from ch_eigenstrat_snp_cov_for_multiqc.collect().ifEmpty([])
