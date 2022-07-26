@@ -28,6 +28,7 @@ def _get_args():
         dest="kmerout",
         default=None,
         help="Kmer Output file. Default = <basename>.kmer_kraken_parsed.csv")
+    parser.add_argument('--bracken', dest='bracken', default=False, action='store_true')
 
     args = parser.parse_args()
 
@@ -35,8 +36,9 @@ def _get_args():
     countlim = int(args.count)
     readout = args.readout
     kmerout = args.kmerout
+    bracken = args.bracken
 
-    return(infile, countlim, readout, kmerout)
+    return(infile, countlim, readout, kmerout, bracken)
 
 
 def _get_basename(file_name):
@@ -47,7 +49,7 @@ def _get_basename(file_name):
     return(basename)
 
 
-def parse_kraken(infile, countlim):
+def parse_kraken(infile, countlim, bracken):
     '''
     INPUT:
         infile (str): path to kraken report file
@@ -63,17 +65,23 @@ def parse_kraken(infile, countlim):
         for line in csvreader:
             reads = int(line[1])
             if reads >= countlim:
-                taxid = line[6]
-                kmer = line[3]
-                unique_kmer = line[4]
-                try:
-                    kmer_duplicity = float(kmer)/float(unique_kmer)
-                except ZeroDivisionError:
-                    kmer_duplicity = 0
-                read_dict[taxid] = reads
-                kmer_dict[taxid] = kmer_duplicity
-
-        return(read_dict, kmer_dict)
+                if bracken:
+                    taxid = line[5]
+                    read_dict[taxid] = reads
+                else:
+                    taxid = line[6]
+                    kmer = line[3]
+                    unique_kmer = line[4]
+                    try:
+                        kmer_duplicity = float(kmer)/float(unique_kmer)
+                    except ZeroDivisionError:
+                        kmer_duplicity = 0
+                    kmer_dict[taxid] = kmer_duplicity
+                    read_dict[taxid] = reads
+        if bracken:
+            return(read_dict)
+        else:
+            return(read_dict, kmer_dict)
 
 
 def write_output(resdict, infile, outfile):
@@ -85,7 +93,7 @@ def write_output(resdict, infile, outfile):
 
 
 if __name__ == '__main__':
-    INFILE, COUNTLIM, readout, kmerout = _get_args()
+    INFILE, COUNTLIM, readout, kmerout, bracken = _get_args()
 
     if not readout:
         read_outfile = _get_basename(INFILE)+".read_kraken_parsed.csv"
@@ -96,6 +104,10 @@ if __name__ == '__main__':
     else:
         kmer_outfile = kmerout
 
-    read_dict, kmer_dict = parse_kraken(infile=INFILE, countlim=COUNTLIM)
-    write_output(resdict=read_dict, infile=INFILE, outfile=read_outfile)
-    write_output(resdict=kmer_dict, infile=INFILE, outfile=kmer_outfile)
+    if bracken:
+        read_dict = parse_kraken(infile=INFILE, countlim=COUNTLIM, bracken=True)
+        write_output(resdict=read_dict, infile=INFILE, outfile=read_outfile)
+    else:
+        read_dict, kmer_dict = parse_kraken(infile=INFILE, countlim=COUNTLIM)
+        write_output(resdict=read_dict, infile=INFILE, outfile=read_outfile)
+        write_output(resdict=kmer_dict, infile=INFILE, outfile=kmer_outfile)
