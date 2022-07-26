@@ -3083,9 +3083,8 @@ if (params.bracken){
   ch_brackendb = Channel.fromPath(params.database).first()
   ch_db_for_bracken = Channel.fromPath(params.database).first()
   } else {
-    ch_brackendb = Channel.empty()
-    ch_db_for_bracken = Channel.empty()
-    ch_input_kraken_merge = ch_kraken_report
+  ch_brackendb = Channel.empty()
+  ch_db_for_bracken = Channel.empty()
 }
 
 process bracken_db {
@@ -3121,7 +3120,7 @@ process bracken {
   path(krakendb) from ch_db_for_bracken
 
   output:
-  tuple val(name), path("*_bracken_species.kraken2_report") optional true into ch_input_kraken_merge
+  tuple val(name), path("*_bracken_species.kraken2_report") optional true into ch_bracken_report
   path("*.kraken.bracken.out") optional true
 
   script:
@@ -3149,9 +3148,13 @@ process kraken_parse {
   input:
   tuple val(name), path(kraken_r) from ch_krakenparse_input
 
+  output:
+  path('*_kraken_parsed.csv') into ch_kraken_parsed 
+
   script:
   read_out = name+".read_kraken_parsed.csv"
   kmer_out =  name+".kmer_kraken_parsed.csv"
+
   if ( params.bracken )
   """
   kraken_parse.py -c ${params.metagenomic_min_support_reads} -or $read_out -ok $kmer_out $kraken_r --bracken
