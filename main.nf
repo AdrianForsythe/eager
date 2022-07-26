@@ -2804,7 +2804,7 @@ process sexdeterrmine_prep {
 
 // As we collect all files for a single sex_deterrmine run, we DO NOT use the normal input/output tuple
 process sexdeterrmine {
-    label 'mc_small'
+    label 'mc_medium'
     publishDir "${params.outdir}/sex_determination", mode: params.publish_dir_mode
 
     input:
@@ -3085,7 +3085,10 @@ if (params.bracken){
   } else {
     ch_brackendb = Channel.empty()
     ch_db_for_bracken = Channel.empty()
+<<<<<<< HEAD
+=======
     ch_input_kraken_merge = ch_kraken_report
+>>>>>>> 4cdbf7c7b7633712bc4bbc591bddfdf484600738
 }
 
 process bracken_db {
@@ -3121,7 +3124,11 @@ process bracken {
   path(krakendb) from ch_db_for_bracken
 
   output:
+<<<<<<< HEAD
+  tuple val(name), path("*_bracken_species.kraken2_report") optional true into ch_bracken_report
+=======
   tuple val(name), path("*_bracken_species.kraken2_report") optional true into ch_input_kraken_merge
+>>>>>>> 4cdbf7c7b7633712bc4bbc591bddfdf484600738
   path("*.kraken.bracken.out") optional true
 
   script:
@@ -3136,15 +3143,18 @@ process bracken {
   """
 }
 
+if (params.bracken){
+  ch_krakenparse_input = ch_bracken_report
+  } else {
+  ch_krakenparse_input = ch_kraken_report
+}
+
 process kraken_parse {
   tag "$name"
   errorStrategy 'ignore'
 
   input:
-  tuple val(name), path(kraken_r) from ch_input_kraken_merge
-
-  output:
-  path('*_kraken_parsed.csv') into ch_kraken_parsed
+  tuple val(name), path(kraken_r) from ch_krakenparse_input
 
   script:
   read_out = name+".read_kraken_parsed.csv"
