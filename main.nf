@@ -3085,10 +3085,7 @@ if (params.bracken){
   } else {
     ch_brackendb = Channel.empty()
     ch_db_for_bracken = Channel.empty()
-<<<<<<< HEAD
-=======
     ch_input_kraken_merge = ch_kraken_report
->>>>>>> 4cdbf7c7b7633712bc4bbc591bddfdf484600738
 }
 
 process bracken_db {
@@ -3124,11 +3121,7 @@ process bracken {
   path(krakendb) from ch_db_for_bracken
 
   output:
-<<<<<<< HEAD
-  tuple val(name), path("*_bracken_species.kraken2_report") optional true into ch_bracken_report
-=======
   tuple val(name), path("*_bracken_species.kraken2_report") optional true into ch_input_kraken_merge
->>>>>>> 4cdbf7c7b7633712bc4bbc591bddfdf484600738
   path("*.kraken.bracken.out") optional true
 
   script:
