@@ -24,16 +24,25 @@ def _get_args():
         dest="kmerout",
         default="kraken_kmer_unicity_table.csv",
         help="Kmer unicity output file. Default = kraken_kmer_unicity_table.csv")
-    parser.add_argument('--bracken', dest='bracken', default=False, action='store_true')
+    parser.add_argument(
+        '-okc',
+        dest="kmercountsout",
+        default="kraken_kmer_counts_table.csv",
+        help="unique kmer counts output file. Default = kraken_kmer_counts_table.csv")    
+    parser.add_argument(
+        '--bracken', 
+        dest='bracken', 
+        default=False, 
+        action='store_true')
 
     args = parser.parse_args()
 
     readout = args.readout
     kmerout = args.kmerout
+    kmercountsout = args.kmercountsout
     bracken = args.bracken
 
-    return(readout, kmerout, bracken)
-
+    return(readout, kmerout, kmercountsout, bracken)
 
 def get_csv(bracken):
     if bracken:
@@ -42,11 +51,10 @@ def get_csv(bracken):
         return(read)
     else:
         tmp = [i for i in os.listdir() if ".csv" in i]
-        kmer = [i for i in tmp if '.kmer_' in i]
-        read = [i for i in tmp if '.read_' in i]
-        return(read, kmer)
-
-
+        kmer = [i for i in tmp if '.kmer_kraken' in i]
+        kmercounts = [i for i in tmp if '.kmer_counts_kraken' in i]
+        read = [i for i in tmp if '.read_kraken' in i]
+        return(read, kmer, kmercounts)
 
 def _get_basename(file_name):
     if ("/") in file_name:
@@ -54,7 +62,6 @@ def _get_basename(file_name):
     else:
         basename = file_name.split(".")[0]
     return(basename)
-
 
 def merge_csv(all_csv):
     df = pd.read_csv(all_csv[0], index_col=0)
@@ -64,20 +71,20 @@ def merge_csv(all_csv):
     df.fillna(0, inplace=True)
     return(df)
 
-
 def write_csv(pd_dataframe, outfile):
     pd_dataframe.to_csv(outfile)
 
-
 if __name__ == "__main__":
-    READOUT, KMEROUT, bracken = _get_args()
-    if bracken:
-        reads = get_csv(bracken)
+    READOUT, KMEROUT, KMERCOUNTSOUT, BRACKEN = _get_args()
+    if BRACKEN:
+        reads = get_csv(bracken=True)
         read_df = merge_csv(reads)
         write_csv(read_df, READOUT)
     else:
-        reads, kmers = get_csv(bracken)
+        reads, kmers, kmercounts = get_csv(bracken=False)
         read_df = merge_csv(reads)
         kmer_df = merge_csv(kmers)
+        kmercounts_df = merge_csv(kmercounts)
         write_csv(read_df, READOUT)
         write_csv(kmer_df, KMEROUT)
+        write_csv(kmercounts_df, KMERCOUNTSOUT)

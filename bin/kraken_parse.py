@@ -28,6 +28,11 @@ def _get_args():
         dest="kmerout",
         default=None,
         help="Kmer Output file. Default = <basename>.kmer_kraken_parsed.csv")
+    parser.add_argument(
+        '-okc',
+        dest="kmercountsout",
+        default=None,
+        help="Unique kmer counts output file. Default = <basename>.kmer_counts_kraken_parsed.csv")
     parser.add_argument('--bracken', dest='bracken', default=False, action='store_true')
 
     args = parser.parse_args()
@@ -36,9 +41,10 @@ def _get_args():
     countlim = int(args.count)
     readout = args.readout
     kmerout = args.kmerout
+    kmercountsout = args.kmercountsout
     bracken = args.bracken
 
-    return(infile, countlim, readout, kmerout, bracken)
+    return(infile, countlim, readout, kmerout, kmercountsout, bracken)
 
 
 def _get_basename(file_name):
@@ -56,20 +62,23 @@ def parse_kraken(infile, countlim, bracken):
         countlim (int): lowest count threshold to report hit
     OUTPUT:
         resdict (dict): key=taxid, value=readCount
+    BRACKEN:
+        bracken (logical): is infile the output from bracken?
 
     '''
     with open(infile, 'r') as f:
         read_dict = {}
         kmer_dict = {}
+        kmer_counts = {}
         csvreader = csv.reader(f, delimiter='\t')
         for line in csvreader:
             reads = int(line[1])
             if reads >= countlim:
                 if bracken:
-                    taxid = line[5]
+                    taxid = line[4].strip().replace(",","")
                     read_dict[taxid] = reads
                 else:
-                    taxid = line[6]
+                    taxid = line[6].strip().replace(",","")
                     kmer = line[3]
                     unique_kmer = line[4]
                     try:
@@ -78,10 +87,11 @@ def parse_kraken(infile, countlim, bracken):
                         kmer_duplicity = 0
                     kmer_dict[taxid] = kmer_duplicity
                     read_dict[taxid] = reads
+                    kmer_counts[taxid] = unique_kmer
         if bracken:
             return(read_dict)
         else:
-            return(read_dict, kmer_dict)
+            return(read_dict, kmer_dict, kmer_counts)
 
 
 def write_output(resdict, infile, outfile):
@@ -93,7 +103,7 @@ def write_output(resdict, infile, outfile):
 
 
 if __name__ == '__main__':
-    INFILE, COUNTLIM, readout, kmerout, bracken = _get_args()
+    INFILE, COUNTLIM, readout, kmerout, kmercountsout, bracken = _get_args()
 
     if not readout:
         read_outfile = _get_basename(INFILE)+".read_kraken_parsed.csv"
@@ -103,11 +113,17 @@ if __name__ == '__main__':
         kmer_outfile = _get_basename(INFILE)+".kmer_kraken_parsed.csv"
     else:
         kmer_outfile = kmerout
+    if not kmercountsout:
+        kmer_countsfile = _get_basename(INFILE)+".kmer_counts_kraken_parsed.csv"
+    else:
+        kmer_countsfile = kmercountsout
 
     if bracken:
         read_dict = parse_kraken(infile=INFILE, countlim=COUNTLIM, bracken=True)
         write_output(resdict=read_dict, infile=INFILE, outfile=read_outfile)
     else:
-        read_dict, kmer_dict = parse_kraken(infile=INFILE, countlim=COUNTLIM)
+        read_dict, kmer_dict, kmer_counts = parse_kraken(infile=INFILE, countlim=COUNTLIM, bracken=False)
         write_output(resdict=read_dict, infile=INFILE, outfile=read_outfile)
         write_output(resdict=kmer_dict, infile=INFILE, outfile=kmer_outfile)
+        write_output(resdict=kmer_counts, infile=INFILE, outfile=kmer_countsfile)
+
