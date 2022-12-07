@@ -586,7 +586,7 @@ process makeFastaIndex {
 }
 
 ch_fai_for_skipfastaindexing.mix(ch_fasta_faidx_index) 
-  .into { ch_fai_for_ug; ch_fai_for_hc; ch_fai_for_freebayes; ch_fai_for_pileupcaller; ch_fai_for_angsd }
+  .into { ch_fai_for_damageprofiler; ch_fai_for_ug; ch_fai_for_hc; ch_fai_for_freebayes; ch_fai_for_pileupcaller; ch_fai_for_angsd }
 
 // Stage dict index file if supplied, else load it into the channel
 
@@ -777,7 +777,7 @@ ch_input_for_fastp.fourcol
       [ samplename, libraryid, lane, seqtype, organism, strandedness, udg, r1, r2 ]
 
     }
- .set { ch_skipfastp_for_merge }
+  .set { ch_skipfastp_for_merge }
 
 ch_output_from_fastp
   .map{
@@ -808,7 +808,7 @@ process adapter_removal {
 
     input:
     tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, file(r1), file(r2) from ch_fastp_for_adapterremoval
-    path adapterlist from ch_adapterlist.collect().dump(tag: "Adapter list")
+    path adapterlist from ch_adapterlist.collect()
 
     output:
     tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, path("output/*{combined.fq,.se.truncated,pair1.truncated}.gz") into ch_output_from_adapterremoval_r1
@@ -976,13 +976,10 @@ if ( params.skip_collapse ){
 // AdapterRemoval bypass when not running it
 if (!params.skip_adapterremoval) {
     ch_output_from_adapterremoval.mix(ch_fastp_for_skipadapterremoval)
-        .dump(tag: "post_ar_adapterremoval_decision_skipar")
         .filter { it =~/.*combined.fq.gz|.*truncated.gz/ }
-        .dump(tag: "ar_bypass")
         .into { ch_adapterremoval_for_post_ar_trimming; ch_adapterremoval_for_skip_post_ar_trimming; } 
 } else {
     ch_fastp_for_skipadapterremoval
-        .dump(tag: "post_ar_adapterremoval_decision_withar")
         .into { ch_adapterremoval_for_post_ar_trimming; ch_adapterremoval_for_skip_post_ar_trimming; } 
 }
 
@@ -1084,7 +1081,6 @@ ch_branched_for_lanemerge = ch_inlinebarcoderemoval_for_lanemerge
       [ samplename, libraryid, lane, seqtype, organism, strandedness, udg, r1, r2 ]
 
   }
-  .dump(tag: "lanemerge_bypass_decision")
   .branch {
     skip_merge: it[7].size() == 1 // Can skip merging if only single lanes
     merge_me: it[7].size() > 1
@@ -1105,7 +1101,6 @@ ch_branched_for_lanemerge_skipme = ch_branched_for_lanemerge.skip_merge
 
         [ samplename, libraryid, lane, seqtype, organism, strandedness, udg, r1, r2 ]
   }
-  .dump(tag: "lanemerge_reconfigure")
 
 
 ch_branched_for_lanemerge_ready = ch_branched_for_lanemerge.merge_me
@@ -1133,7 +1128,7 @@ process lanemerge {
   publishDir "${params.outdir}/lanemerging", mode: params.publish_dir_mode
 
   input:
-  tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, path(r1), path(r2) from ch_branched_for_lanemerge_ready.dump(tag: "lange_merge_input")
+  tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, path(r1), path(r2) from ch_branched_for_lanemerge_ready
 
   output:
   tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, path("*_R1_lanemerged.fq.gz") into ch_lanemerge_for_mapping_r1
@@ -1141,7 +1136,7 @@ process lanemerge {
 
   script:
   if ( seqtype == 'PE' && ( params.skip_collapse || params.skip_adapterremoval ) ){
-  lane = 0
+  def lane = 0
   """
   cat ${r1} > "${libraryid}"_R1_lanemerged.fq.gz
   cat ${r2} > "${libraryid}"_R2_lanemerged.fq.gz
@@ -1157,7 +1152,6 @@ process lanemerge {
 // Ensuring always valid R2 file even if doesn't exist for AWS
 if ( ( params.skip_collapse || params.skip_adapterremoval ) ) {
   ch_lanemerge_for_mapping_r1
-    .dump(tag: "post_lanemerge_reconfigure")
     .mix(ch_lanemerge_for_mapping_r2)
     .groupTuple(by: [0,1,2,3,4,5,6])
     .map{
@@ -1309,8 +1303,8 @@ process bwa {
     publishDir "${params.outdir}/mapping/bwa", mode: params.publish_dir_mode
 
     input:
-    tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, path(r1), path(r2) from ch_lanemerge_for_bwa.dump(tag: "bwa_input_reads")
-    path index from bwa_index.collect().dump(tag: "input_index")
+    tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, path(r1), path(r2) from ch_lanemerge_for_bwa
+    path index from bwa_index.collect()
 
     output:
     tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, path("*.mapped.bam"), path("*.{bai,csi}") into ch_output_from_bwa   
@@ -1582,18 +1576,19 @@ process hostremoval_input_fastq {
     tuple samplename, libraryid, seqtype, organism, strandedness, udg, file("*.fq.gz") into ch_output_from_hostremovalfastq
 
     script:
+    def merged = params.skip_collapse ? "": "-merged"
     if ( seqtype == 'SE' ) {
         out_fwd = bam.baseName+'.hostremoved.fq.gz'
         """
         samtools index $bam
-        extract_map_reads.py $bam ${r1} -m ${params.hostremoval_mode} -of $out_fwd -p ${task.cpus}
+        extract_map_reads.py $bam ${r1} -m ${params.hostremoval_mode} $merged -of $out_fwd -t ${task.cpus} 
         """
     } else {
         out_fwd = bam.baseName+'.hostremoved.fwd.fq.gz'
         out_rev = bam.baseName+'.hostremoved.rev.fq.gz'
         """
         samtools index $bam
-        extract_map_reads.py $bam ${r1} -rev ${r2} -m  ${params.hostremoval_mode} -of $out_fwd -or $out_rev -p ${task.cpus}
+        extract_map_reads.py $bam ${r1} -rev ${r2} -m ${params.hostremoval_mode} $merged -of $out_fwd -or $out_rev -t ${task.cpus}
         """ 
     }
     
@@ -1608,7 +1603,7 @@ ch_branched_for_seqtypemerge = ch_mapping_for_seqtype_merging
     it ->
       def samplename = it[0]
       def libraryid  = it[1]
-      def lane = it[2]
+      def lane = 0
       def seqtype = it[3].unique() // How to deal with this?
       def organism = it[4]
       def strandedness = it[5]
@@ -1616,9 +1611,13 @@ ch_branched_for_seqtypemerge = ch_mapping_for_seqtype_merging
       def r1 = it[7]
       def r2 = it[8]
 
-      // We will assume if mixing it is better to set as PE as this is informative
+      // 1. We will assume if mixing it is better to set as PE as this is informative
       // for DeDup (and markduplicates doesn't care), but will throw a warning!
-      def seqtype_new = seqtype.flatten().size() > 1 ? 'PE' : seqtype 
+      // 2. We will also flatten to a single value to address problems with 'unstable' 
+      // Nextflow ArrayBag object types not allowing the .join to work between resumes
+      // See: https://github.com/nf-core/eager/issues/880
+
+      def seqtype_new = seqtype.flatten().size() > 1 ? 'PE' : seqtype.flatten()[0] 
                       
       if ( seqtype.flatten().size() > 1 &&  params.dedupper == 'dedup' ) {
         log.warn "[nf-core/eager] Warning: you are running DeDup on BAMs with a mixture of PE/SE data for library: ${libraryid}. DeDup is designed for PE data only, deduplication maybe suboptimal!"
@@ -1627,7 +1626,6 @@ ch_branched_for_seqtypemerge = ch_mapping_for_seqtype_merging
       [ samplename, libraryid, lane, seqtype_new, organism, strandedness, udg, r1, r2 ]
 
   }
-  .dump(tag: "pre_seqtype_decision")
   .branch {
     skip_merge: it[7].size() == 1 // Can skip merging if only single lanes
     merge_me: it[7].size() > 1
@@ -1833,11 +1831,12 @@ if (params.run_bam_filtering) {
         def seqtype = it[3]
         def organism = it[4]
         def strandedness = it[5]
-        def udg = it[6]     
+        def udg = it[6]
         def stats = file(it[7])
         def poststats = file("$projectDir/assets/nf-core_eager_dummy.txt")
 
-      [samplename, libraryid, lane, seqtype, organism, strandedness, udg, stats, poststats ] }
+      [samplename, libraryid, lane, seqtype, organism, strandedness, udg, stats, poststats ] 
+    }
     .set{ ch_allflagstats_for_endorspy }
 }
 
@@ -1998,7 +1997,6 @@ ch_input_for_librarymerging.merge_me
 
       [it[0], libraryid, it[2], seqtype, it[4], it[5], it[6], bam, bai ]
     }
-  .dump(tag: "input_for_lib_merging")
   .set { ch_fixedinput_for_librarymerging }
 
 process library_merge {
@@ -2007,7 +2005,7 @@ process library_merge {
   publishDir "${params.outdir}/merged_bams/initial", mode: params.publish_dir_mode
 
   input:
-  tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, file(bam), file(bai) from ch_fixedinput_for_librarymerging.dump(tag: "library_merge_input")
+  tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, file(bam), file(bai) from ch_fixedinput_for_librarymerging
 
   output:
   tuple samplename, val("${samplename}_libmerged"), lane, seqtype, organism, strandedness, udg, path("*_libmerged_rmdup.bam"), path("*_libmerged_rmdup.bam.{bai,csi}") into ch_output_from_librarymerging
@@ -2137,6 +2135,7 @@ process damageprofiler {
     input:
     tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, path(bam), path(bai) from ch_rmdup_for_damageprofiler
     file fasta from ch_fasta_for_damageprofiler.collect()
+    file fai from ch_fai_for_damageprofiler.collect()
 
     output:
     tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, path("${base}/*.txt") optional true
@@ -2174,8 +2173,10 @@ process mapdamage_rescaling {
     def base = "${bam.baseName}"
     def singlestranded = strandedness == "single" ? '--single-stranded' : ''
     def size = params.large_ref ? '-c' : ''
+    def rescale_length_3p = params.rescale_length_3p != 0 ? "--rescale-length-3p=${params.rescale_length_3p}" : ""
+    def rescale_length_5p = params.rescale_length_5p != 0 ? "--rescale-length-5p=${params.rescale_length_5p}" : ""
     """
-    mapDamage -i ${bam} -r ${fasta} --rescale --rescale-out ${base}_rescaled.bam --rescale-length-5p ${params.rescale_length_5p} --rescale-length-3p=${params.rescale_length_3p} ${singlestranded}
+    mapDamage -i ${bam} -r ${fasta} --rescale --rescale-out="${base}_rescaled.bam" --seq-length=${params.rescale_seqlength} ${rescale_length_5p} ${rescale_length_3p} ${singlestranded}
     samtools index ${base}_rescaled.bam ${size}
     """
 
@@ -2276,7 +2277,7 @@ process bam_trim {
     tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, path(bam), path(bai) from ch_bamutils_decision.totrim
 
     output: 
-    tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, file("*.trimmed.bam"), file("*.trimmed.bam.{bai,csi}") into ch_trimmed_from_bamutils
+    tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, path("*.trimmed.bam"), path("*.trimmed.bam.{bai,csi}") into ch_trimmed_from_bamutils
 
     script:
     def softclip = params.bamutils_softclip ? '-c' : '' 
@@ -2308,7 +2309,7 @@ ch_trimmed_formerge = ch_bamutils_decision.notrim
         def seqtype = it[3]
         def organism = it[4]
         def strandedness = it[5]
-        def udg = it[6]     
+        def udg = it[6]
         def bam = it[7].flatten()
         def bai = it[8].flatten()
 
@@ -2378,41 +2379,71 @@ process qualimap {
 // Reroute files for genotyping; we have to ensure to select lib-merged BAMs, as input channel will also contain the un-merged ones resulting in unwanted multi-sample VCFs
 if ( params.run_genotyping && params.genotyping_source == 'raw' ) {
     ch_output_from_bamutils
-      .into { ch_damagemanipulation_for_skipgenotyping; ch_damagemanipulation_for_genotyping_ug; ch_damagemanipulation_for_genotyping_hc; ch_damagemanipulation_for_genotyping_freebayes; ch_damagemanipulation_for_genotyping_pileupcaller; ch_damagemanipulation_for_genotyping_angsd }
+      .into { ch_damagemanipulation_for_skipgenotyping; ch_damagemanipulation_for_readgroupreplacement; ch_damagemanipulation_for_genotyping_ug; ch_damagemanipulation_for_genotyping_hc; ch_damagemanipulation_for_genotyping_freebayes; ch_damagemanipulation_for_genotyping_pileupcaller; ch_damagemanipulation_for_genotyping_angsd }
 
 } else if ( params.run_genotyping && params.genotyping_source == "trimmed" && !params.run_trim_bam )  {
     exit 1, "[nf-core/eager] error: Cannot run genotyping with 'trimmed' source without running BAM trimming (--run_trim_bam)! Please check input parameters."
 
 } else if ( params.run_genotyping && params.genotyping_source == "trimmed" && params.run_trim_bam )  {
     ch_output_from_bamutils
-        .into { ch_damagemanipulation_for_skipgenotyping; ch_damagemanipulation_for_genotyping_ug; ch_damagemanipulation_for_genotyping_hc; ch_damagemanipulation_for_genotyping_freebayes; ch_damagemanipulation_for_genotyping_pileupcaller; ch_damagemanipulation_for_genotyping_angsd }
+        .into { ch_damagemanipulation_for_skipgenotyping; ch_damagemanipulation_for_readgroupreplacement; ch_damagemanipulation_for_genotyping_ug; ch_damagemanipulation_for_genotyping_hc; ch_damagemanipulation_for_genotyping_freebayes; ch_damagemanipulation_for_genotyping_pileupcaller; ch_damagemanipulation_for_genotyping_angsd }
 
 } else if ( params.run_genotyping && params.genotyping_source == "pmd" && !params.run_pmdtools )  {
     exit 1, "[nf-core/eager] error: Cannot run genotyping with 'pmd' source without running pmdtools (--run_pmdtools)! Please check input parameters."
 
 } else if ( params.run_genotyping && params.genotyping_source == "pmd" && params.run_pmdtools )  {
   ch_output_from_pmdtools
-    .into { ch_damagemanipulation_for_skipgenotyping; ch_damagemanipulation_for_genotyping_ug; ch_damagemanipulation_for_genotyping_hc; ch_damagemanipulation_for_genotyping_freebayes; ch_damagemanipulation_for_genotyping_pileupcaller; ch_damagemanipulation_for_genotyping_angsd }
+    .into { ch_damagemanipulation_for_skipgenotyping; ch_damagemanipulation_for_readgroupreplacement; ch_damagemanipulation_for_genotyping_ug; ch_damagemanipulation_for_genotyping_hc; ch_damagemanipulation_for_genotyping_freebayes; ch_damagemanipulation_for_genotyping_pileupcaller; ch_damagemanipulation_for_genotyping_angsd }
 
 } else if ( params.run_genotyping && params.genotyping_source == "rescaled" && params.run_mapdamage_rescaling) {
   ch_output_from_damagerescaling
-    .into { ch_damagemanipulation_for_skipgenotyping; ch_damagemanipulation_for_genotyping_ug; ch_damagemanipulation_for_genotyping_hc; ch_damagemanipulation_for_genotyping_freebayes; ch_damagemanipulation_for_genotyping_pileupcaller; ch_damagemanipulation_for_genotyping_angsd }
+    .into { ch_damagemanipulation_for_skipgenotyping; ch_damagemanipulation_for_readgroupreplacement; ch_damagemanipulation_for_genotyping_ug; ch_damagemanipulation_for_genotyping_hc; ch_damagemanipulation_for_genotyping_freebayes; ch_damagemanipulation_for_genotyping_pileupcaller; ch_damagemanipulation_for_genotyping_angsd }
 
 } else if ( params.run_genotyping && params.genotyping_source == "rescaled" && !params.run_mapdamage_rescaling) {
     exit 1, "[nf-core/eager] error: Cannot run genotyping with 'rescaled' source without running damage rescaling (--run_damagescaling)! Please check input parameters."
 
 } else if ( !params.run_genotyping && !params.run_trim_bam && !params.run_pmdtools )  {
     ch_rmdup_for_skipdamagemanipulation
-    .into { ch_damagemanipulation_for_skipgenotyping; ch_damagemanipulation_for_genotyping_ug; ch_damagemanipulation_for_genotyping_hc; ch_damagemanipulation_for_genotyping_freebayes; ch_damagemanipulation_for_genotyping_pileupcaller; ch_damagemanipulation_for_genotyping_angsd }
+    .into { ch_damagemanipulation_for_skipgenotyping; ch_damagemanipulation_for_readgroupreplacement; ch_damagemanipulation_for_genotyping_ug; ch_damagemanipulation_for_genotyping_hc; ch_damagemanipulation_for_genotyping_freebayes; ch_damagemanipulation_for_genotyping_pileupcaller; ch_damagemanipulation_for_genotyping_angsd }
 
 } else if ( !params.run_genotyping && !params.run_trim_bam && params.run_pmdtools )  {
     ch_rmdup_for_skipdamagemanipulation
-    .into { ch_damagemanipulation_for_skipgenotyping; ch_damagemanipulation_for_genotyping_ug; ch_damagemanipulation_for_genotyping_hc; ch_damagemanipulation_for_genotyping_freebayes; ch_damagemanipulation_for_genotyping_pileupcaller; ch_damagemanipulation_for_genotyping_angsd }
+    .into { ch_damagemanipulation_for_skipgenotyping; ch_damagemanipulation_for_readgroupreplacement; ch_damagemanipulation_for_genotyping_ug; ch_damagemanipulation_for_genotyping_hc; ch_damagemanipulation_for_genotyping_freebayes; ch_damagemanipulation_for_genotyping_pileupcaller; ch_damagemanipulation_for_genotyping_angsd }
 
 } else if ( !params.run_genotyping && params.run_trim_bam && !params.run_pmdtools )  {
     ch_rmdup_for_skipdamagemanipulation
-    .into { ch_damagemanipulation_for_skipgenotyping; ch_damagemanipulation_for_genotyping_ug; ch_damagemanipulation_for_genotyping_hc; ch_damagemanipulation_for_genotyping_freebayes; ch_damagemanipulation_for_genotyping_pileupcaller; ch_damagemanipulation_for_genotyping_angsd }
+    .into { ch_damagemanipulation_for_skipgenotyping; ch_damagemanipulation_for_readgroupreplacement; ch_damagemanipulation_for_genotyping_ug; ch_damagemanipulation_for_genotyping_hc; ch_damagemanipulation_for_genotyping_freebayes; ch_damagemanipulation_for_genotyping_pileupcaller; ch_damagemanipulation_for_genotyping_angsd }
 
+}
+
+// replace readgroups to ensure single 'sample' per VCF for MultiVCFAnalyzer only
+
+process picard_addorreplacereadgroups {
+  label 'sc_tiny'
+  tag "${samplename}"
+
+  when:
+  params.run_genotyping && params.genotyping_tool == 'ug' && params.run_multivcfanalyzer
+
+  input:
+  tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, path(bam), path(bai) from ch_damagemanipulation_for_readgroupreplacement
+
+  output:
+  tuple samplename, val("${samplename}"), lane, seqtype, organism, strandedness, udg, path("*rg.bam"), path("*rg.bam.{bai,csi}") into ch_readgroup_replacement_for_ug
+
+  script:
+  def size = params.large_ref ? '-c' : ''
+  """
+  picard -Xmx${task.memory.toGiga()}g AddOrReplaceReadGroups I=${bam} O=${samplename}_rg.bam RGID=1 RGLB="${samplename}_rg" RGPL=illumina RGPU=4410 RGSM="${samplename}_rg" VALIDATION_STRINGENCY=LENIENT
+  samtools index ${samplename}_rg.bam ${size}
+  """
+
+}
+
+if ( params.run_genotyping && params.genotyping_tool == 'ug' && params.run_multivcfanalyzer ) {
+  ch_input_for_ug = ch_readgroup_replacement_for_ug
+} else {
+  ch_input_for_ug = ch_damagemanipulation_for_genotyping_ug
 }
 
 // Unified Genotyper - although not-supported, better for aDNA (because HC does de novo assembly which requires higher coverages), and needed for MultiVCFAnalyzer
@@ -2426,7 +2457,7 @@ process genotyping_ug {
   params.run_genotyping && params.genotyping_tool == 'ug'
 
   input:
-  tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, file(bam), file(bai) from ch_damagemanipulation_for_genotyping_ug
+  tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, file(bam), file(bai) from ch_input_for_ug
   file fasta from ch_fasta_for_genotyping_ug.collect()
   file fai from ch_fai_for_ug.collect()
   file dict from ch_dict_for_ug.collect()
@@ -2534,10 +2565,36 @@ ch_damagemanipulation_for_genotyping_pileupcaller
  // Create pileupcaller input tuples
 ch_input_for_genotyping_pileupcaller.singleStranded
   .groupTuple(by:[5])
+  .map{
+        def samplename = it[0]
+        def libraryid  = it[1]
+        def lane = it[2]
+        def seqtype = it[3]
+        def organism = it[4]
+        def strandedness = it[5]
+        def udg = it[6]
+        def bam = it[7].flatten()
+        def bai = it[8].flatten()
+
+      [samplename, libraryid, lane, seqtype, organism, strandedness, udg, bam, bai ]
+  }
   .set {ch_prepped_for_pileupcaller_single}
 
 ch_input_for_genotyping_pileupcaller.doubleStranded
   .groupTuple(by:[5])
+  .map{
+        def samplename = it[0]
+        def libraryid  = it[1]
+        def lane = it[2]
+        def seqtype = it[3]
+        def organism = it[4]
+        def strandedness = it[5]
+        def udg = it[6]
+        def bam = it[7].flatten()
+        def bai = it[8].flatten()
+
+      [samplename, libraryid, lane, seqtype, organism, strandedness, udg, bam, bai ]
+  }
   .set {ch_prepped_for_pileupcaller_double}
 
 process genotyping_pileupcaller {
@@ -2549,12 +2606,12 @@ process genotyping_pileupcaller {
   params.run_genotyping && params.genotyping_tool == 'pileupcaller'
 
   input:
-  tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, bam, bai from ch_prepped_for_pileupcaller_double.mix(ch_prepped_for_pileupcaller_single)
+  tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, path(bam), path(bai) from ch_prepped_for_pileupcaller_double.mix(ch_prepped_for_pileupcaller_single)
   file fasta from ch_fasta_for_genotyping_pileupcaller.collect()
   file fai from ch_fai_for_pileupcaller.collect()
   file dict from ch_dict_for_pileupcaller.collect()
   path(bed) from ch_bed_for_pileupcaller.collect()
-  path(snp) from ch_snp_for_pileupcaller.collect().dump(tag: "pileupcaller_snp_file")
+  path(snp) from ch_snp_for_pileupcaller.collect()
 
   output:
   tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, path("pileupcaller.${strandedness}.*") into ch_for_eigenstrat_snp_coverage
@@ -2585,7 +2642,7 @@ process eigenstrat_snp_coverage {
   params.run_genotyping && params.genotyping_tool == 'pileupcaller'
   
   input:
-  tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, path("*") from ch_for_eigenstrat_snp_coverage.dump(tag:'eigenstrat_input')
+  tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, path("*") from ch_for_eigenstrat_snp_coverage
   
   output:
   tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, path("*.json") into ch_eigenstrat_snp_cov_for_multiqc
@@ -2716,7 +2773,7 @@ process vcf2genome {
 if (!params.additional_vcf_files) {
     ch_vcfs_for_multivcfanalyzer = ch_ug_for_multivcfanalyzer.map{ it[-1] }.collect()
 } else {
-    ch_vcfs_for_multivcfanalyzer = ch_ug_for_multivcfanalyzer.map{ it[-1] }.mix(ch_extravcfs_for_multivcfanalyzer).collect().dump(tag: "postmix")
+    ch_vcfs_for_multivcfanalyzer = ch_ug_for_multivcfanalyzer.map{ it[-1] }.mix(ch_extravcfs_for_multivcfanalyzer).collect()
 }
 
 process multivcfanalyzer {
@@ -3461,7 +3518,6 @@ workflow.onError {
 def extract_data(tsvFile) {
     Channel.fromPath(tsvFile)
         .splitCsv(header: true, sep: '\t')
-        .dump(tag:'tsv_extract')
         .map { row ->
 
             def expected_keys = ['Sample_Name', 'Library_ID', 'Lane', 'Colour_Chemistry', 'SeqType', 'Organism', 'Strandedness', 'UDG_Treatment', 'R1', 'R2', 'BAM']
