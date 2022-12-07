@@ -574,11 +574,14 @@ process makeFastaIndex {
 
     output:
     path "*.fai" into ch_fasta_faidx_index
+    path "*.bed" into ch_fasta_faidx_index_headers
     path "where_are_my_files.txt"
 
     script:
+    header = params.filter_header_name
     """
     samtools faidx $fasta
+    awk 'BEGIN {FS="\t"}; {print \$1 FS "0" FS \$2}' ${fasta}.fai | grep -E "$header" > fasta_host_headers.bed
     """
 }
 
@@ -682,7 +685,7 @@ process indexinputbam {
 // Raw sequencing QC - allow user evaluate if sequencing any good?
 
 process fastqc {
-    label 'mc_small'
+    label 'mc_medium'
     tag "${libraryid}_L${lane}"
     publishDir "${params.outdir}/fastqc/input_fastq", mode: params.publish_dir_mode,
         saveAs: { filename ->
@@ -1655,13 +1658,12 @@ ch_seqtypemerge_for_filtering
 // Post-mapping QC
 
 process samtools_flagstat {
-    label 'sc_tiny'
+    label 'sc_medium'
     tag "$libraryid"
     publishDir "${params.outdir}/samtools/stats", mode: params.publish_dir_mode
 
     input:
     tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, file(bam), file(bai) from ch_seqtypemerged_for_samtools_flagstat
-
 
     output:
     tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, path("*stats") into ch_flagstat_for_multiqc,ch_flagstat_for_endorspy
@@ -1671,7 +1673,6 @@ process samtools_flagstat {
     samtools flagstat $bam > ${libraryid}_flagstat.stats
     """
 }
-
 
 // BAM filtering e.g. to extract unmapped reads for downstream or stricter mapping quality
 
@@ -1691,37 +1692,37 @@ process samtools_filter {
 
     input: 
     tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, file(bam), file(bai) from ch_seqtypemerged_for_samtools_filter
-
+    file header from ch_fasta_faidx_index_headers.collect()
+    
     output:
-    tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, file("*filtered.bam"), file("*.{bai,csi}") into ch_output_from_filtering
+    tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, file("*.filtered.bam"), file("*.{bai,csi}") into ch_output_from_filtering
     tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, file("*.unmapped.fastq.gz") optional true into ch_bam_filtering_for_metagenomic,ch_metagenomic_for_skipentropyfilter
     tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, file("*.unmapped.bam") optional true
 
     script:
-    
     def size = params.large_ref ? '-c' : ''
     
     // Unmapped/MAPQ Filtering WITHOUT min-length filtering
     if ( "${params.bam_unmapped_type}" == "keep"  && params.bam_filter_minreadlength == 0 ) {
         """
-        samtools view -h ${bam} -@ ${task.cpus} -q ${params.bam_mapping_quality_threshold} -b > ${libraryid}.filtered.bam
+        samtools view -h ${bam} -@ ${task.cpus} -q ${params.bam_mapping_quality_threshold} -b -L ${header} > ${libraryid}.filtered.bam
         samtools index ${libraryid}.filtered.bam ${size}
         """
     } else if ( "${params.bam_unmapped_type}" == "discard" && params.bam_filter_minreadlength == 0 ){
         """
-        samtools view -h ${bam} -@ ${task.cpus} -F4 -q ${params.bam_mapping_quality_threshold} -b > ${libraryid}.filtered.bam
+        samtools view -h ${bam} -@ ${task.cpus} -F4 -q ${params.bam_mapping_quality_threshold} -b -L ${header} > ${libraryid}.filtered.bam
         samtools index ${libraryid}.filtered.bam ${size}
         """
     } else if ( "${params.bam_unmapped_type}" == "bam" && params.bam_filter_minreadlength == 0 ){
         """
         samtools view -h ${bam} -@ ${task.cpus} -f4 -b > ${libraryid}.unmapped.bam
-        samtools view -h ${bam} -@ ${task.cpus} -F4 -q ${params.bam_mapping_quality_threshold} -b > ${libraryid}.filtered.bam
+        samtools view -h ${bam} -@ ${task.cpus} -F4 -q ${params.bam_mapping_quality_threshold} -b -L ${header} > ${libraryid}.filtered.bam
         samtools index ${libraryid}.filtered.bam ${size}
         """
     } else if ( "${params.bam_unmapped_type}" == "fastq" && params.bam_filter_minreadlength == 0 ){
         """
         samtools view -h ${bam} -@ ${task.cpus} -f4 -b > ${libraryid}.unmapped.bam
-        samtools view -h ${bam} -@ ${task.cpus} -F4 -q ${params.bam_mapping_quality_threshold} -b > ${libraryid}.filtered.bam
+        samtools view -h ${bam} -@ ${task.cpus} -F4 -q ${params.bam_mapping_quality_threshold} -b -L ${header} > ${libraryid}.filtered.bam
         samtools index ${libraryid}.filtered.bam ${size}
 
         ## FASTQ
@@ -1731,7 +1732,7 @@ process samtools_filter {
     } else if ( "${params.bam_unmapped_type}" == "both" && params.bam_filter_minreadlength == 0 ){
         """
         samtools view -h ${bam} -@ ${task.cpus} -f4 -b > ${libraryid}.unmapped.bam
-        samtools view -h ${bam} -@ ${task.cpus} -F4 -q ${params.bam_mapping_quality_threshold} -b > ${libraryid}.filtered.bam
+        samtools view -h ${bam} -@ ${task.cpus} -F4 -q ${params.bam_mapping_quality_threshold} -b -L ${header} > ${libraryid}.filtered.bam
         samtools index ${libraryid}.filtered.bam ${size}
         
         ## FASTQ
@@ -1740,27 +1741,27 @@ process samtools_filter {
     // Unmapped/MAPQ Filtering WITH min-length filtering
     } else if ( "${params.bam_unmapped_type}" == "keep" && params.bam_filter_minreadlength != 0 ) {
         """
-        samtools view -h ${bam} -@ ${task.cpus} -q ${params.bam_mapping_quality_threshold} -b > tmp_mapped.bam
+        samtools view -h ${bam} -@ ${task.cpus} -q ${params.bam_mapping_quality_threshold} -b -L ${header} > tmp_mapped.bam
         filter_bam_fragment_length.py -a -l ${params.bam_filter_minreadlength} -o ${libraryid} tmp_mapped.bam
         samtools index ${libraryid}.filtered.bam ${size}
         """
     } else if ( "${params.bam_unmapped_type}" == "discard" && params.bam_filter_minreadlength != 0 ){
         """
-        samtools view -h ${bam} -@ ${task.cpus} -F4 -q ${params.bam_mapping_quality_threshold} -b > tmp_mapped.bam
+        samtools view -h ${bam} -@ ${task.cpus} -F4 -q ${params.bam_mapping_quality_threshold} -b -L ${header} > tmp_mapped.bam
         filter_bam_fragment_length.py -a -l ${params.bam_filter_minreadlength} -o ${libraryid} tmp_mapped.bam
         samtools index ${libraryid}.filtered.bam ${size}
         """
     } else if ( "${params.bam_unmapped_type}" == "bam" && params.bam_filter_minreadlength != 0 ){
         """
         samtools view -h ${bam} -@ ${task.cpus} -f4 -b > ${libraryid}.unmapped.bam
-        samtools view -h ${bam} -@ ${task.cpus} -F4 -q ${params.bam_mapping_quality_threshold} -b > tmp_mapped.bam
+        samtools view -h ${bam} -@ ${task.cpus} -F4 -q ${params.bam_mapping_quality_threshold} -b -L ${header} > tmp_mapped.bam
         filter_bam_fragment_length.py -a -l ${params.bam_filter_minreadlength} -o ${libraryid} tmp_mapped.bam
         samtools index ${libraryid}.filtered.bam ${size}
         """
     } else if ( "${params.bam_unmapped_type}" == "fastq" && params.bam_filter_minreadlength != 0 ){
         """
         samtools view -h ${bam} -@ ${task.cpus} -f4 -b > ${libraryid}.unmapped.bam
-        samtools view -h ${bam} -@ ${task.cpus} -F4 -q ${params.bam_mapping_quality_threshold} -b > tmp_mapped.bam
+        samtools view -h ${bam} -@ ${task.cpus} -F4 -q ${params.bam_mapping_quality_threshold} -b -L ${header} > tmp_mapped.bam
         filter_bam_fragment_length.py -a -l ${params.bam_filter_minreadlength} -o ${libraryid} tmp_mapped.bam
         samtools index ${libraryid}.filtered.bam ${size}
 
@@ -1771,7 +1772,7 @@ process samtools_filter {
     } else if ( "${params.bam_unmapped_type}" == "both" && params.bam_filter_minreadlength != 0 ){
         """
         samtools view -h ${bam} -@ ${task.cpus} -f4 -b > ${libraryid}.unmapped.bam
-        samtools view -h ${bam} -@ ${task.cpus} -F4 -q ${params.bam_mapping_quality_threshold} -b > tmp_mapped.bam
+        samtools view -h ${bam} -@ ${task.cpus} -F4 -q ${params.bam_mapping_quality_threshold} -b -L ${header} > tmp_mapped.bam
         filter_bam_fragment_length.py -a -l ${params.bam_filter_minreadlength} -o ${libraryid} tmp_mapped.bam
         samtools index ${libraryid}.filtered.bam ${size}
         
@@ -1796,7 +1797,7 @@ if (params.run_bam_filtering) {
 // Post filtering mapping QC - particularly to help see how much was removed from mapping quality filtering
 
 process samtools_flagstat_after_filter {
-    label 'sc_tiny'
+    label 'sc_medium'
     tag "$libraryid"
     publishDir "${params.outdir}/samtools/filtered_stats", mode: params.publish_dir_mode
 
@@ -2122,7 +2123,8 @@ process bedtools {
 // Calculate typical aDNA damage frequency distribution
 
 process damageprofiler {
-    label 'sc_small'
+    label 'sc_medium'
+    errorStrategy 'ignore'
     tag "${libraryid}"
 
     publishDir "${params.outdir}/damageprofiler", mode: params.publish_dir_mode
@@ -2699,7 +2701,7 @@ process genotyping_angsd {
     angsd_glformat = "3"; break
   }
   
-  def angsd_fasta = !params.angsd_createfasta ? '' : params.angsd_fastamethod == 'random' ? '-doFasta 1 -doCounts 1' : '-doFasta 2 -doCounts 1' 
+  def angsd_fasta = !params.angsd_createfasta ? '' : params.angsd_fastamethod == 'random' ? '-doFasta 1 -doCounts 1 -dumpCounts 3' : '-doFasta 2 -doCounts 1 -dumpCounts 3' 
   def angsd_majorminor = params.angsd_glformat != "beagle" ? '' : '-doMajorMinor 1'
   """
   echo ${bam} > bam.filelist
@@ -2859,7 +2861,7 @@ process sexdeterrmine_prep {
 
 // As we collect all files for a single sex_deterrmine run, we DO NOT use the normal input/output tuple
 process sexdeterrmine {
-    label 'mc_small'
+    label 'mc_medium'
     publishDir "${params.outdir}/sex_determination", mode: params.publish_dir_mode
 
     input:
@@ -3104,10 +3106,12 @@ if (params.run_metagenomic_screening && params.database.endsWith(".tar.gz") && p
     ch_krakendb = Channel.empty()
 }
 
+def extractDirectory = { it.parent.toString().substring(it.parent.toString().lastIndexOf('/') + 1 ) }
+
 process kraken {
   tag "$prefix"
   label 'mc_huge'
-  publishDir "${params.outdir}/metagenomic_classification/kraken", mode: params.publish_dir_mode
+  publishDir "${params.outdir}/metagenomic_classification/kraken/${params.database_name}", mode: params.publish_dir_mode
 
   when:
   params.run_metagenomic_screening && params.run_bam_filtering && params.bam_unmapped_type == 'fastq' && params.metagenomic_tool == 'kraken'
@@ -3118,7 +3122,7 @@ process kraken {
 
   output:
   file "*.kraken.out" optional true into ch_kraken_out
-  tuple prefix, path("*.kraken2_report") optional true into ch_kraken_report, ch_kraken_for_multiqc
+  tuple prefix, path("*.kraken2_report") optional true into ch_kraken_report, ch_kraken_for_multiqc, ch_bracken_input
 
   script:
   prefix = fastq.baseName
@@ -3132,40 +3136,114 @@ process kraken {
   """
 }
 
+if (params.bracken){
+  ch_brackendb = Channel.fromPath(params.database).first()
+  ch_db_for_bracken = Channel.fromPath(params.database).first()
+  } else {
+  ch_brackendb = Channel.empty()
+  ch_db_for_bracken = Channel.empty()
+}
+
+process bracken_db {
+  tag "$name"
+  label 'mc_huge'
+
+  when:
+  params.run_metagenomic_screening && params.run_bam_filtering && params.bam_unmapped_type == 'fastq' && params.metagenomic_tool == 'kraken' && params.bracken && !params.skip_bracken_db
+
+  input:
+  path(krakendb) from ch_brackendb
+
+  script:
+  read_length = params.bracken_readlength
+  kmer = params.bracken_kmerlength
+  
+  """
+  bracken-build -d ${krakendb} -t ${task.cpus} -k ${kmer} -l ${read_length}
+  """
+}
+
+process bracken {
+  tag "$name"
+  label 'mc_small'
+  publishDir "${params.outdir}/metagenomic_classification/bracken/${params.database_name}", mode: params.publish_dir_mode
+  errorStrategy 'ignore'
+
+  when:
+  params.run_metagenomic_screening && params.run_bam_filtering && params.bam_unmapped_type == 'fastq' && params.metagenomic_tool == 'kraken' && params.bracken
+
+  input:
+  tuple val(name), path(k_report) from ch_bracken_input
+  path(krakendb) from ch_db_for_bracken
+
+  output:
+  tuple val(name), path("*_bracken_species.kraken2_report") optional true into ch_bracken_report
+  path("*.kraken.bracken.out") optional true
+
+  script:
+  kraken_r = name+"_bracken_species.kraken2_report"
+  bracken_out =  name+".kraken.bracken.out"
+  level = params.taxa_min_level
+  threshold = params.metagenomic_min_support_reads
+  read_length = params.bracken_readlength
+
+  """
+  bracken -i ${k_report} -o ${bracken_out} -d ${krakendb} -r ${read_length} -l ${level} -t ${threshold}
+  """
+}
+
+if (params.bracken){
+  ch_krakenparse_input = ch_bracken_report
+  } else {
+  ch_krakenparse_input = ch_kraken_report
+}
+
 process kraken_parse {
   tag "$name"
   errorStrategy 'ignore'
 
   input:
-  tuple val(name), path(kraken_r) from ch_kraken_report
+  tuple val(name), path(kraken_r) from ch_krakenparse_input
 
   output:
-  path('*_kraken_parsed.csv') into ch_kraken_parsed
+  path('*_kraken_parsed.csv') into ch_kraken_parsed 
 
   script:
   read_out = name+".read_kraken_parsed.csv"
   kmer_out =  name+".kmer_kraken_parsed.csv"
+
+  if ( params.bracken )
+  """
+  kraken_parse.py -c ${params.metagenomic_min_support_reads} -or $read_out -ok $kmer_out $kraken_r --bracken
+  """    
+  else
   """
   kraken_parse.py -c ${params.metagenomic_min_support_reads} -or $read_out -ok $kmer_out $kraken_r
   """    
 }
 
 process kraken_merge {
-  publishDir "${params.outdir}/metagenomic_classification/kraken", mode: params.publish_dir_mode
+  publishDir "${params.outdir}/metagenomic_classification/kraken/${params.database_name}", mode: params.publish_dir_mode
 
   input:
-  file csv_count from ch_kraken_parsed.collect()
-
+  file csv_count from ch_kraken_parsed.collect()  
+  
   output:
   path('*.csv')
 
   script:
   read_out = "kraken_read_count.csv"
   kmer_out = "kraken_kmer_duplication.csv"
+
+  if ( params.bracken )
+  """
+  merge_kraken_res.py -or $read_out -ok $kmer_out --bracken
+  """    
+  else
   """
   merge_kraken_res.py -or $read_out -ok $kmer_out
   """    
-}
+} 
 
 //////////////////////////////////////
 /* --    PIPELINE COMPLETION     -- */
