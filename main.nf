@@ -2710,6 +2710,61 @@ process genotyping_angsd {
   """
 }
 
+process genotyping_angsd_mt {
+  label 'mc_small'
+  tag "${samplename}"
+  publishDir "${params.outdir}/genotyping_mt", mode: params.publish_dir_mode
+
+  when:
+  params.run_genotyping_mt && params.genotyping_tool == 'angsd'
+
+  input:
+  tuple samplename, libraryid, lane, seqtype, organism, strandedness, udg, file(bam), file(bai) from ch_damagemanipulation_for_genotyping_angsd
+  file fasta from ch_fasta_for_genotyping_angsd.collect()
+  file fai from ch_fai_for_angsd.collect()
+  file dict from ch_dict_for_angsd.collect()
+
+  output: 
+  path("${samplename}*")
+  
+  script:
+  switch ( "${params.angsd_glmodel}" ) {
+    case "samtools":
+    angsd_glmodel = "1"; break
+    case "gatk":
+    angsd_glmodel = "2"; break
+    case "soapsnp":
+    angsd_glmodel = "3"; break
+    case "syk":
+    angsd_glmodel = "4"; break
+  }
+
+  switch ( "${params.angsd_glformat}" ) {
+    case "text":
+    angsd_glformat = "4"; break
+    case "binary":
+    angsd_glformat = "1"; break
+    case "beagle":
+    angsd_glformat = "2"; break
+    case "binary_three":
+    angsd_glformat = "3"; break
+  }
+  
+  switch ( "${params.angsd_region}" ) {
+    case "text":
+    bam_region = "-r ${params.angsd_region}"
+  }
+
+  def angsd_fasta = !params.angsd_createfasta ? '' : params.angsd_fastamethod == 'random' ? '-doFasta 1 -doCounts 1 -dumpCounts 3' : '-doFasta 2 -doCounts 1 -dumpCounts 3' 
+  def angsd_majorminor = params.angsd_glformat != "beagle" ? '' : '-doMajorMinor 1'
+  """
+  echo ${bam} > bam.filelist
+  mkdir angsd
+  angsd -bam bam.filelist ${bam_region} -nThreads ${task.cpus} -GL ${angsd_glmodel} -doGlF ${angsd_glformat} ${angsd_majorminor} ${angsd_fasta} -out ${samplename}.angsd
+  """
+}
+
+
 ////////////////////////////////////
 /* --    GENOTYPING STATS     -- */
 ////////////////////////////////////

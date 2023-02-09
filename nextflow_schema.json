@@ -1213,6 +1213,12 @@
           "help_text": "The type of base calling to be performed when creating the ANGSD FASTA file. Options: `'random'` or `'common'`. Will output the most common non-N base at each given position, whereas 'random' will pick one at random. Default: `'random'`.\n\n> Modifies ANGSD parameter: `-doFasta -doCounts`",
           "enum": ["random", "common"]
         },
+        "angsd_region": {
+          "type": "string",
+          "default": "MT",
+          "description": "Specify the region of the host genome to perform genotyping on.",
+          "fa_icon": "fas fa-heading"
+        },
         "run_bcftools_stats": {
           "type": "boolean",
           "default": true,
